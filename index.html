@@ -1,12 +1,186 @@
 <!doctype html><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PingTap — テスト</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>PingTap — Retro Rally (SFC-lite)</title>
 <style>
-html,body{margin:0;height:100%;background:#0b1224;color:#fff;
-font:16px/1.6 -apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif;
-display:grid;place-items:center}
-button{padding:10px 16px;border:0;border-radius:10px;
-background:#ffd34d;color:#222;font-weight:700;box-shadow:0 4px 0 #caa132}
+  html,body{margin:0;height:100%;background:#0b1224;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
+  #cv{position:fixed;inset:0;touch-action:manipulation}
+  .hud{position:fixed;left:10px;right:10px;top:8px;display:flex;justify-content:space-between;
+       font-weight:700;text-shadow:0 1px 0 rgba(0,0,0,.35);pointer-events:none}
+  .card{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+        gap:10px;background:rgba(0,0,0,.55);text-align:center;padding:18px}
+  .btn{padding:10px 18px;border:0;border-radius:10px;background:#ffd34d;color:#222;font-weight:700;box-shadow:0 4px 0 #caa132}
+  .filebtn{margin-top:8px}
 </style>
-<h1>PingTap Pages テスト中</h1>
-<button onclick="alert('動作OK！')">タップ</button>
+
+<canvas id="cv"></canvas>
+<div class="hud"><div id="sc">Score 0</div><div id="cb">Combo 0</div><div id="bs">Best 0</div></div>
+
+<div id="start" class="card">
+  <div style="font-size:24px">PingTap — Retro Rally</div>
+  <div>背景は任意（端末の写真OK）※なくても始められる</div>
+  <input id="pick" class="filebtn" type="file" accept="image/*">
+  <button id="go" class="btn">スタート</button>
+  <div style="font-size:12px;opacity:.9">リングが縮んでベース円に重なったらTAP → ゆる判定でスコア加点（コンボで倍率）</div>
+</div>
+
+<div id="over" class="card" style="display:none">
+  <div id="final" style="font-size:20px">0</div>
+  <button id="retry" class="btn">もう一回</button>
+</div>
+
+<script>
+/* ====== 基本 ====== */
+const cv = document.getElementById('cv'), ctx=cv.getContext('2d',{alpha:false});
+let W=0,H=0,dpr=1; function resize(){ dpr=Math.max(1,Math.min(3,devicePixelRatio||1));
+  W=innerWidth; H=innerHeight; cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(dpr,0,0,dpr,0,0);
+} addEventListener('resize',resize); resize();
+
+/* ====== オプション背景 ====== */
+let bgImg=null;
+document.getElementById('pick').onchange=e=>{
+  const f=e.target.files?.[0]; if(!f) return;
+  const url=URL.createObjectURL(f); const i=new Image();
+  i.onload=()=>{ bgImg=i; URL.revokeObjectURL(url); }; i.src=url;
+};
+function drawBG(){
+  if(!bgImg){ ctx.fillStyle='#0b1224'; ctx.fillRect(0,0,W,H); return; }
+  const r=Math.max(W/bgImg.width,H/bgImg.height)*1.02;
+  const w=bgImg.width*r,h=bgImg.height*r; ctx.drawImage(bgImg,(W-w)/2,(H-h)/2,w,h);
+  ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(0,0,W,H); // 少しだけ明るく
+}
+
+/* ====== ゲーム調整（スーファミ風・やさしめ判定） ====== */
+const NET_Y_FIXED = 0.52;            // 画面高さに対する比率（固定ネット）
+const N=7;                            // スポット数
+const BASE_R=30, SHRINK=32;          // ベース円と縮小円
+const HIT_TOL=46;                    // 位置許容（広め）
+const MATCH_TOL=8;                   // タイミング許容（広め）
+const START_DUR=1.25, MIN_DUR=0.55;  // 最初のテンポ / 最小
+const SPEEDUP=0.965;                 // 徐々に速く（ゆるめ）
+
+/* ====== 状態 ====== */
+let spotsBot=[],spotsTop=[]; let idxBot=3,idxTop=3;
+function layoutSpots(){
+  const net = H*NET_Y_FIXED;
+  const yTop = Math.max(70, net-120);
+  const yBot = Math.min(H-110, net+160);
+  spotsBot=[]; spotsTop=[];
+  const m=20, usable=W-m*2;
+  for(let i=0;i<N;i++){ const x=m+usable*(i+0.5)/N; spotsTop.push({x,y:yTop,r:22}); spotsBot.push({x,y:yBot,r:22}); }
+}
+layoutSpots();
+
+let phase='toPlayer', g=1400, pos={x:W*0.5,y:H*0.3}, vel={x:0,y:0}, dur=START_DUR, t0=0;
+let playing=false, score=0, best=Number(localStorage.getItem('PT_best')||0), combo=0, speedLv=1;
+const SC=document.getElementById('sc'), CB=document.getElementById('cb'), BS=document.getElementById('bs'); BS.textContent='Best '+best;
+
+/* ====== パドル（SFCっぽい簡易アニメ） ====== */
+let idle=0, swingR=0, swingL=0;
+function paddleRight(){ const x=W*0.74, y=H*NET_Y_FIXED-16; return {x,y}; }
+function paddleLeft(){  const x=W*0.26, y=spotsBot[0].y-24; return {x,y}; }
+function drawPaddle(x,y,rot){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot);
+  // 段付き塗りでレトロ感
+  ctx.fillStyle='#b61d2e'; ctx.beginPath(); ctx.arc(0,0,18,0,6.28); ctx.fill();
+  ctx.fillStyle='#e34b5c'; ctx.beginPath(); ctx.arc(-3,-3,7,0,6.28); ctx.fill();
+  ctx.fillStyle='#8b5a2b'; ctx.fillRect(-3,14,6,26);
+  ctx.restore();
+}
+function drawPaddles(dt){
+  idle+=dt;
+  let r=paddleRight(), l=paddleLeft();
+  let rotR = -0.1 + Math.sin(idle*1.6)*0.06; if(swingR>0){ rotR=-0.6 + (0.18-swingR)*8; swingR=Math.max(0,swingR-dt); }
+  let rotL =  0.08 + Math.sin(idle*1.7)*0.05; if(swingL>0){ rotL= 0.6 - (0.16-swingL)*8; swingL=Math.max(0,swingL-dt); }
+  drawPaddle(r.x, r.y + Math.sin(idle*2)*3, rotR);
+  drawPaddle(l.x, l.y + Math.sin(idle*2)*2, rotL);
+}
+
+/* ====== 入力 ====== */
+function pick(px,py,arr){ for(let i=0;i<arr.length;i++){ const s=arr[i],dx=px-s.x,dy=py-s.y; if(dx*dx+dy*dy<=(s.r*2.2)*(s.r*2.2)) return i; } return -1; }
+function onDown(e){
+  if(!playing) return;
+  const r=cv.getBoundingClientRect(); const x=(e.clientX??e.touches[0].clientX)-r.left, y=(e.clientY??e.touches[0].clientY)-r.top;
+  if(phase!=='toPlayer') return;
+  const idx=pick(x,y,spotsBot); if(idx<0||idx!==idxBot) return;
+  const rr=ringRNow(), dist=Math.hypot(x-spotsBot[idx].x,y-spotsBot[idx].y);
+  const onTime=Math.abs(rr-BASE_R)<=MATCH_TOL, near=dist<=HIT_TOL;
+  if(onTime && near){
+    // スコア：中央ほど高得点 + コンボ倍率
+    const acc = Math.max(0, 1 - Math.abs(rr-BASE_R)/MATCH_TOL); // 0..1
+    const gain = Math.round(50 + acc*150) * Math.max(1, 1+combo*0.1);
+    score += gain; combo++; SC.textContent='Score '+score; CB.textContent='Combo '+combo;
+    dur = Math.max(MIN_DUR, dur*SPEEDUP); speedLv = 1 + Math.round((START_DUR-dur)/(START_DUR-MIN_DUR)*6);
+    document.title = `PingTap — Lv.${speedLv}`;
+    swingL = 0.16;
+    legToPaddle();
+  }else{
+    gameOver();
+  }
+}
+addEventListener('pointerdown',onDown,{passive:true});
+addEventListener('touchstart',onDown,{passive:true});
+
+/* ====== セグメント ====== */
+function ringRNow(){ const now=performance.now()/1e3, left=Math.max(0,dur-(now-t0)); return BASE_R + SHRINK*(left/dur); }
+function legToPlayer(){ phase='toPlayer'; t0=performance.now()/1e3; idxBot=Math.floor(Math.random()*N); const d=spotsBot[idxBot]; const T=dur; vel.x=(d.x-pos.x)/T; vel.y=(d.y-pos.y-0.5*g*T*T)/T; }
+function legToPaddle(){ phase='toPaddle'; t0=performance.now()/1e3; const d=paddleRight();           const T=dur; vel.x=(d.x-pos.x)/T; vel.y=(d.y-pos.y-0.5*g*T*T)/T; }
+
+/* ====== 描画 ====== */
+function drawBall(x,y){
+  const target=(phase==='toPlayer')?spotsBot[idxBot]:paddleRight();
+  const shadowY=target.y, sh=Math.max(3,18-(shadowY-y)*0.03);
+  ctx.beginPath(); ctx.fillStyle='rgba(0,0,0,.25)'; ctx.ellipse(x,shadowY+6,sh,sh*0.5,0,0,6.28); ctx.fill();
+  ctx.beginPath(); ctx.fillStyle='#ffe48a'; ctx.arc(x,y,7,0,6.28); ctx.fill();
+  ctx.beginPath(); ctx.fillStyle='rgba(255,255,255,.85)'; ctx.arc(x-2,y-2,2,0,6.28); ctx.fill();
+
+  // リング
+  const rr=ringRNow(); const isPlayer=(phase==='toPlayer');
+  const rx=isPlayer?spotsBot[idxBot].x:spotsTop[idxTop].x; const ry=isPlayer?spotsBot[idxBot].y:spotsTop[idxTop].y;
+  ctx.beginPath(); ctx.strokeStyle=isPlayer?'rgba(255,220,120,.95)':'rgba(140,200,255,.95)'; ctx.lineWidth=3; ctx.arc(rx,ry,BASE_R,0,6.28); ctx.stroke();
+  ctx.beginPath(); ctx.setLineDash([4,4]); ctx.strokeStyle=isPlayer?'rgba(255,255,140,.95)':'rgba(160,220,255,.9)'; ctx.lineWidth=3; ctx.arc(rx,ry,rr,0,6.28); ctx.stroke(); ctx.setLineDash([]);
+}
+
+/* ====== ループ ====== */
+let last=performance.now()/1e3;
+function loop(){
+  const now=performance.now()/1e3, dt=Math.min(.033,now-last); last=now;
+  drawBG();
+
+  // ネット
+  ctx.fillStyle='#2b3e6d'; ctx.fillRect(0,H*NET_Y_FIXED, W, 2);
+  ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(0,H*NET_Y_FIXED+2, W, 6);
+
+  drawPaddles(dt);
+
+  if(playing){
+    pos.x+=vel.x*dt; pos.y+=vel.y*dt + 0.5*g*dt*dt; vel.y+=g*dt;
+    drawBall(pos.x,pos.y);
+
+    // セグメント端
+    if(now - t0 >= dur - 0.01){
+      if(phase==='toPlayer'){ gameOver(); }
+      else{
+        const hit=paddleRight(); pos.x=hit.x; pos.y=hit.y; swingR=0.2; legToPlayer();
+      }
+    }
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ====== スタート/ゲームオーバー ====== */
+const GO=document.getElementById('go'), S=document.getElementById('start'), O=document.getElementById('over'), F=document.getElementById('final'), RY=document.getElementById('retry');
+function startGame(){
+  S.style.display='none'; O.style.display='none';
+  score=0; combo=0; SC.textContent='Score 0'; CB.textContent='Combo 0';
+  dur=START_DUR; speedLv=1;
+  pos={x:W*0.5,y:H*NET_Y_FIXED-90}; vel={x:0,y:0}; legToPlayer(); playing=true;
+}
+function gameOver(){
+  if(!playing) return; playing=false;
+  if(score>best){best=score; localStorage.setItem('PT_best',best); BS.textContent='Best '+best;}
+  F.textContent=`Score ${score} / Best ${best} / Lv.${speedLv}`; O.style.display='flex';
+}
+GO.onclick=startGame; RY.onclick=()=>{S.style.display='flex';O.style.display='none';};
+
+requestAnimationFrame(loop);
+</script>
