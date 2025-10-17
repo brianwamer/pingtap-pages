@@ -1,11 +1,11 @@
 <!doctype html><meta charset="utf-8">
 <meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>PingTap — Retro Rally (lenient)</title>
+<title>PingTap — Retro Rally (random landing)</title>
 <style>
   html,body{margin:0;height:100%;background:#061431;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
   #cv{position:fixed;inset:0;background:#061431}
-  .hud{position:fixed;top:8px;left:10px;right:10px;display:flex;gap:14px;justify-content:flex-start;
-       font-weight:800;text-shadow:0 1px 0 rgba(0,0,0,.35);pointer-events:none}
+  .hud{position:fixed;top:8px;left:10px;right:10px;display:flex;gap:14px;font-weight:800;
+       text-shadow:0 1px 0 rgba(0,0,0,.35);pointer-events:none}
   .pill{background:rgba(0,0,0,.35);padding:8px 12px;border-radius:18px}
   .card{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
         background:rgba(0,0,0,.55);text-align:center;padding:18px}
@@ -22,7 +22,7 @@
 
 <div class="card" id="start">
   <div style="font-size:26px;margin-bottom:10px">PingTap — Retro Rally</div>
-  <div class="sub">リングが縮んでベースに重なったらTAP（判定ゆるめ&入力バッファ）</div>
+  <div class="sub">リング一致でTAP → 相手コートへランダム着弾 → 返球（判定ゆるめ / 入力バッファ）</div>
   <button class="btn" id="go">スタート</button>
 </div>
 
@@ -34,18 +34,19 @@
 <script>
 (()=>{
 /* ====== 画像パス ====== */
-const BG_SRC = '2FE72969-9374-4D85-ADBC-28EADEE8437A.png';
-const CH_SRC = 'CC20C873-161F-43A9-A82C-42E467EF7C46.png'; // ※1枚でもOK（軽い演出のみ）
+const BG_SRC='2FE72969-9374-4D85-ADBC-28EADEE8437A.png';
+const CH_SRC='CC20C873-161F-43A9-A82C-42E467EF7C46.png';
 
-/* ====== 判定ゆるめ設定 ====== */
-const TAP_RADIUS = 70;                 // 位置許容
-const WIN_P = 0.090, WIN_G = 0.160, WIN_O = 0.240; // Perfect/Good/OK 早/遅 許容（秒）
-const BUFFER_LATE_EXTRA = 0.060;       // ヒット後の遅れ許容少し追加
-let assist = 1.0;                      // ミスが続くと 1.4 まで自動拡大
+/* ====== 判定（ゆるめ） ====== */
+const TAP_RADIUS=70;
+const WIN_P=0.090, WIN_G=0.160, WIN_O=0.240;
+const BUFFER_LATE_EXTRA=0.060;
+let assist=1.0;
 
 /* ====== テンポ ====== */
-const START_DUR=1.45, SPEEDUP=0.93, MIN_DUR=0.62; // 以前より緩やか
-const LEVEL_STEP=6; // 6コンボでLv+1（Lvで加速幅を少し強める）
+const START_DUR=1.45, SPEEDUP=0.93, MIN_DUR=0.62;
+const OPP_DUR_RATIO=0.45;     // 相手側レグの長さ（全体の何割か）
+const LEVEL_STEP=6;
 const RING_BASE=30, RING_SHRINK=32;
 
 /* ====== 要素 ====== */
@@ -54,172 +55,189 @@ const SC=document.getElementById('sc'), CM=document.getElementById('cm'), BS=doc
 const S=document.getElementById('start'), GO=document.getElementById('go');
 const O=document.getElementById('over'), F=document.getElementById('final'), RY=document.getElementById('retry');
 
-/* ====== 画像読み込み ====== */
-function load(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
-let imgBG=null, imgCH=null;
+/* ====== 画像 ====== */
+function load(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});}
+let imgBG=null,imgCH=null;
 
+/* ====== レイアウト ====== */
 let W=0,H=0,dpr=1;
-function resize(){ dpr=Math.max(1,Math.min(3,devicePixelRatio||1)); W=innerWidth; H=innerHeight;
-  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(dpr,0,0,dpr,0,0); layout(); }
-addEventListener('resize', resize);
-
-/* ====== スポット ====== */
-const N=7; let spots=[], idx=3;
+const N=7; let spotsTop=[],spotsBot=[];
+function resize(){ dpr=Math.max(1,Math.min(3,devicePixelRatio||1));
+  W=innerWidth; H=innerHeight;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0); layout();
+}
 function layout(){
-  const m=12;
-  const netY = H*0.60;          // ネット上辺
-  const yBot = netY + H*0.23;   // プレイヤースポット列
+  const m=12, netY=H*0.60;
+  const yTop = netY - H*0.10;
+  const yBot = netY + H*0.23;
   const usable=(W-m*2)-40;
-  spots=[]; for(let i=0;i<N;i++){ const x=m+20+usable*(i+0.5)/N; spots.push({x,y:yBot}); }
+  spotsTop=[]; spotsBot=[];
+  for(let i=0;i<N;i++){
+    const x=m+20+usable*(i+0.5)/N;
+    spotsTop.push({x,y:yTop}); spotsBot.push({x,y:yBot});
+  }
 }
 
 /* ====== 状態 ====== */
-let best = Number(localStorage.getItem('PT_best')||0);
-let bestLv = Number(localStorage.getItem('PT_bestLv')||1);
+let best=Number(localStorage.getItem('PT_best')||0);
+let bestLv=Number(localStorage.getItem('PT_bestLv')||1);
 BS.textContent=`Best ${best} / Lv.${bestLv}`;
 
-let score=0, combo=0, level=1, playing=false;
-let dur=START_DUR, t0=0, pos={x:0,y:0};
-let phase='toPlayer';
-function resetHUD(){ SC.textContent=`Score ${score}`; CM.textContent=`Combo ${combo}`; BS.textContent=`Best ${best} / Lv.${bestLv}`; }
+let score=0,combo=0,level=1,playing=false;
+let dur=START_DUR,t0=0,phase='toPlayer';
+let idxBot=3,idxTop=3,lastBotIdx=3;
+function resetHUD(){SC.textContent=`Score ${score}`; CM.textContent=`Combo ${combo}`; BS.textContent=`Best ${best} / Lv.${bestLv}`;}
 
-/* ====== 音（卓球っぽい“ポコッ”） ====== */
+/* ====== 音 ====== */
 let ac=null;
-function hitSfx(pitch=1){
-  if(!ac) ac=new (window.AudioContext||window.webkitAudioContext)();
-  const t=ac.currentTime;
-  const o1=ac.createOscillator(), o2=ac.createOscillator(), g=ac.createGain();
-  o1.type='sine'; o2.type='square';
-  o1.frequency.value=220*pitch; o2.frequency.value=420*pitch;
-  g.gain.setValueAtTime(0.0008,t);
-  g.gain.exponentialRampToValueAtTime(0.18,t+0.005);
-  g.gain.exponentialRampToValueAtTime(0.001,t+0.09);
-  const lp=ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1400;
-  o1.connect(g); o2.connect(g); g.connect(lp).connect(ac.destination);
+function hitSfx(p=1){ if(!ac) ac=new (AudioContext||webkitAudioContext)();
+  const t=ac.currentTime, o1=ac.createOscillator(), o2=ac.createOscillator(), g=ac.createGain(), lp=ac.createBiquadFilter();
+  o1.type='sine'; o2.type='square'; o1.frequency.value=220*p; o2.frequency.value=420*p;
+  g.gain.setValueAtTime(0.0008,t); g.gain.exponentialRampToValueAtTime(0.18,t+0.005); g.gain.exponentialRampToValueAtTime(0.001,t+0.09);
+  lp.type='lowpass'; lp.frequency.value=1400; o1.connect(g); o2.connect(g); g.connect(lp).connect(ac.destination);
   o1.start(t); o2.start(t); o1.stop(t+0.1); o2.stop(t+0.1);
 }
-function missSfx(){
-  if(!ac) ac=new (window.AudioContext||window.webkitAudioContext)();
-  const t=ac.currentTime;
-  const o=ac.createOscillator(), g=ac.createGain();
-  o.type='triangle'; o.frequency.setValueAtTime(180,t);
-  o.frequency.exponentialRampToValueAtTime(120,t+0.2);
-  g.gain.setValueAtTime(0.0008,t); g.gain.exponentialRampToValueAtTime(0.14,t+0.01);
-  g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
+function missSfx(){ if(!ac) ac=new (AudioContext||webkitAudioContext)();
+  const t=ac.currentTime, o=ac.createOscillator(), g=ac.createGain();
+  o.type='triangle'; o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(120,t+0.2);
+  g.gain.setValueAtTime(0.0008,t); g.gain.exponentialRampToValueAtTime(0.14,t+0.01); g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
   o.connect(g).connect(ac.destination); o.start(t); o.stop(t+0.23);
 }
 
-/* ====== 入力（バッファ） ====== */
-let tapBuf=null; // {x,y,t}
-function onDown(e){
-  if(!playing) return;
+/* ====== 入力 ====== */
+let tapBuf=null;
+addEventListener('pointerdown',e=>{
+  if(!playing||phase!=='toPlayer') return;
   const r=cv.getBoundingClientRect();
-  const x=(e.clientX??e.touches[0].clientX)-r.left, y=(e.clientY??e.touches[0].clientY)-r.top;
-  tapBuf={x,y,t:performance.now()/1000};
-}
-addEventListener('pointerdown', onDown, {passive:true});
+  tapBuf={x:(e.clientX??e.touches[0].clientX)-r.left,y:(e.clientY??e.touches[0].clientY)-r.top,t:performance.now()/1000};
+},{passive:true});
 
 /* ====== 演出 ====== */
-let sparks=[]; function sparkle(x,y){ for(let i=0;i<14;i++){ sparks.push({x,y,vx:(Math.random()*2-1)*140,vy:(Math.random()*-1-0.3)*170,a:1}); } }
-function drawSparks(dt){ const n=[]; for(const s of sparks){ s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=380*dt; s.a-=1.8*dt;
-  if(s.a>0){ n.push(s); ctx.globalAlpha=s.a; ctx.fillStyle='#ffe699'; ctx.beginPath(); ctx.arc(s.x,s.y,2.2,0,6.28); ctx.fill(); ctx.globalAlpha=1; } } sparks=n; }
+let sparks=[]; function sparkle(x,y){for(let i=0;i<14;i++)sparks.push({x,y,vx:(Math.random()*2-1)*140,vy:(Math.random()*-1-0.3)*170,a:1});}
+function drawSparks(dt){const n=[];for(const s of sparks){s.x+=s.vx*dt;s.y+=s.vy*dt;s.vy+=380*dt;s.a-=1.8*dt;
+ if(s.a>0){n.push(s);ctx.globalAlpha=s.a;ctx.fillStyle='#ffe699';ctx.beginPath();ctx.arc(s.x,s.y,2.2,0,6.28);ctx.fill();ctx.globalAlpha=1;}}sparks=n;}
+let flash=0;
 
-/* ====== 背景/キャラ（簡易：1枚でも雰囲気出す） ====== */
-function drawBackground(){
-  if(imgBG){ // カバー
-    const r=Math.max(W/imgBG.width,H/imgBG.height); const w=imgBG.width*r, h=imgBG.height*r;
-    ctx.drawImage(imgBG,(W-w)/2,(H-h)/2,w,h);
-  }else{ ctx.fillStyle='#0b253f'; ctx.fillRect(0,0,W,H); }
-  if(imgCH){ // うっすら前景（動きは控えめ）
-    const r=Math.max(W/imgCH.width,H/imgCH.height); const w=imgCH.width*r, h=imgCH.height*r;
-    ctx.globalAlpha=0.97; ctx.drawImage(imgCH,(W-w)/2,(H-h)/2,w,h); ctx.globalAlpha=1;
-  }
+/* ====== 背景・キャラ ====== */
+function drawBG(){
+  if(imgBG){const r=Math.max(W/imgBG.width,H/imgBG.height),w=imgBG.width*r,h=imgBG.height*r;ctx.drawImage(imgBG,(W-w)/2,(H-h)/2,w,h);}
+  else{ctx.fillStyle='#0b253f';ctx.fillRect(0,0,W,H);}
+  if(imgCH){const r=Math.max(W/imgCH.width,H/imgCH.height),w=imgCH.width*r,h=imgCH.height*r;ctx.globalAlpha=0.97;ctx.drawImage(imgCH,(W-w)/2,(H-h)/2,w,h);ctx.globalAlpha=1;}
 }
 
-/* ====== ゲームループ ====== */
-let last=performance.now()/1000, flash=0;
-function ringRadius(now){ const left=Math.max(0,dur-(now-t0)); return RING_BASE + RING_SHRINK*(left/dur); }
+/* ====== ランダム着弾ロジック ====== */
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function pickOppFromBot(bi){
+  // 反射っぽい: 基本は左右反転＋±1を多めに、たまに完全ランダム
+  if(Math.random()<0.75){
+    const base=(N-1-bi) + (Math.random()<0.5?-1:1);
+    return clamp(Math.round(base),0,N-1);
+  }
+  return Math.floor(Math.random()*N);
+}
+function pickBotFromOpp(ti){
+  if(Math.random()<0.70){
+    const base=(N-1-ti) + (Math.random()<0.5?0: (Math.random()<0.5?1:-1));
+    return clamp(Math.round(base),0,N-1);
+  }
+  return Math.floor(Math.random()*N);
+}
+
+/* ====== ループ ====== */
+let last=performance.now()/1000;
+function ringRadius(now){const left=Math.max(0,dur-(now-t0));return RING_BASE+RING_SHRINK*(left/dur);}
+function drawRing(x,y,rr){ctx.beginPath();ctx.strokeStyle='rgba(255,230,120,.95)';ctx.lineWidth=3;ctx.arc(x,y,RING_BASE,0,6.28);ctx.stroke();
+  ctx.beginPath();ctx.setLineDash([6,4]);ctx.strokeStyle='rgba(255,255,160,.95)';ctx.lineWidth=3;ctx.arc(x,y,rr,0,6.28);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='rgba(255,230,120,.95)';ctx.font='900 14px system-ui';ctx.textAlign='center';ctx.fillText('TAP!',x,y-RING_BASE-12);}
 
 function loop(){
-  const now=performance.now()/1000, dt=Math.min(.033, now-last); last=now;
-  ctx.clearRect(0,0,W,H);
-  drawBackground();
+  const now=performance.now()/1000, dt=Math.min(.033,now-last); last=now;
+  ctx.clearRect(0,0,W,H); drawBG();
 
-  // ガイド
-  const target=spots[idx];
-  const rr=ringRadius(now);
-  ctx.beginPath(); ctx.strokeStyle='rgba(255,230,120,.95)'; ctx.lineWidth=3; ctx.arc(target.x,target.y,RING_BASE,0,6.28); ctx.stroke();
-  ctx.beginPath(); ctx.setLineDash([6,4]); ctx.strokeStyle='rgba(255,255,160,.95)'; ctx.lineWidth=3; ctx.arc(target.x,target.y,rr,0,6.28); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle='rgba(255,230,120,.95)'; ctx.font='900 14px system-ui'; ctx.textAlign='center'; ctx.fillText('TAP!', target.x, target.y-RING_BASE-12);
+  if(phase==='toPlayer'){
+    const tgt=spotsBot[idxBot]; drawRing(tgt.x,tgt.y,ringRadius(now));
+  }else if(phase==='toOpp'){
+    // 擬似ボールを弧で描く
+    const A=spotsBot[lastBotIdx], B=spotsTop[idxTop];
+    const T=Math.max(0.35, dur*OPP_DUR_RATIO);
+    const p=clamp((now-t0)/T,0,1);
+    const x=A.x+(B.x-A.x)*p;
+    const arcH=160; // 弧の高さ
+    const y=A.y+(B.y-A.y)*p - arcH*Math.sin(Math.PI*p);
+    // 影
+    ctx.beginPath();ctx.fillStyle='rgba(0,0,0,.25)';ctx.ellipse(x,B.y+6,12,6,0,0,6.28);ctx.fill();
+    // 球
+    ctx.beginPath();ctx.fillStyle='#ffe48a';ctx.arc(x,y,7,0,6.28);ctx.fill();
+    ctx.beginPath();ctx.fillStyle='rgba(255,255,255,.85)';ctx.arc(x-2,y-2,2,0,6.28);ctx.fill();
 
-  // 入力バッファの解決（タイミング＆距離ゆるめ）
-  if(playing && tapBuf){
-    const delta = tapBuf.t - (t0 + dur);                  // 完璧時刻との差（負=早押し、正=遅押し）
-    const dist  = Math.hypot(tapBuf.x-target.x, tapBuf.y-target.y);
-    const early = WIN_P*assist, good=WIN_G*assist, ok=WIN_O*assist;
-
-    let grade=null;
-    if(Math.abs(delta)<=early && dist<=TAP_RADIUS*0.65) grade='Perfect';
-    else if(Math.abs(delta)<=good && dist<=TAP_RADIUS*0.9) grade='Good';
-    else if(delta>=-ok && delta<=ok+BUFFER_LATE_EXTRA && dist<=TAP_RADIUS) grade='OK';
-
-    if(grade){
-      // 成功
-      tapBuf=null;
-      combo++; score += (grade==='Perfect'? 120 : grade==='Good'? 90 : 70) * (1+Math.floor(combo/10)*0.15);
-      level = 1 + Math.floor(combo/LEVEL_STEP);
-      dur = Math.max(MIN_DUR, dur * (SPEEDUP + Math.min(0.04*(level-1),0.10))); // 緩やかに加速
-      SC.textContent=`Score ${score}`; CM.textContent=`Combo ${combo}`; BS.textContent=`Best ${best} / Lv.${bestLv}`;
-      sparkle(target.x,target.y); hitSfx(1+Math.random()*0.05);
-      assist = Math.max(1.0, assist-0.08); // 成功で元に戻す
-      // 次スポットへ
-      idx = Math.floor(Math.random()*N);
-      t0 = now; // 次のレグ開始
-    }else{
-      // まだ判定できない：遅押しの猶予を残す
-      if(delta < -(ok+0.05)) { // 早過ぎ & 窓外 → 早押しミス扱い
-        tapBuf=null; onMiss(now);
-      }
+    if(p>=1){
+      sparkle(B.x,B.y); hitSfx(0.95+Math.random()*0.05);
+      // 次のこちら側ターゲットを決めて再スタート
+      idxBot=pickBotFromOpp(idxTop);
+      phase='toPlayer'; t0=now;
     }
   }
 
-  // タイムアウトでミス（遅れ過ぎ）
-  if(playing && now > t0 + dur + WIN_O*assist + BUFFER_LATE_EXTRA){
-    tapBuf=null; onMiss(now);
-  }
-
   drawSparks(dt);
-  if(flash>0){ ctx.fillStyle=`rgba(255,0,0,${flash*0.22})`; ctx.fillRect(0,0,W,H); flash=Math.max(0,flash-0.05); }
-
+  if(flash>0){ctx.fillStyle=`rgba(255,0,0,${flash*0.22})`;ctx.fillRect(0,0,W,H);flash=Math.max(0,flash-0.05);}
   requestAnimationFrame(loop);
 }
 
+/* ====== 判定 & 遷移 ====== */
 function onMiss(now){
   flash=1; missSfx(); combo=0; CM.textContent='Combo 0';
-  assist = Math.min(1.4, assist+0.2); // ミスが続くとどんどん甘くなる
-  // そのまま次レグへ（遊びが止まらないように）
-  idx = Math.floor(Math.random()*N); t0 = now; 
+  assist=Math.min(1.4,assist+0.2);
+  // ミス後もゲームは止めない：次のこちら側レグを開始
+  idxBot=Math.floor(Math.random()*N); t0=now; phase='toPlayer';
+}
+function resolveTap(now){
+  if(phase!=='toPlayer'||!tapBuf) return;
+  const tgt=spotsBot[idxBot];
+  const delta = tapBuf.t - (t0 + dur);
+  const dist  = Math.hypot(tapBuf.x-tgt.x, tapBuf.y-tgt.y);
+  const early=WIN_P*assist, good=WIN_G*assist, ok=WIN_O*assist;
+  let grade=null;
+  if(Math.abs(delta)<=early && dist<=TAP_RADIUS*0.65) grade='Perfect';
+  else if(Math.abs(delta)<=good && dist<=TAP_RADIUS*0.9) grade='Good';
+  else if(delta>=-ok && delta<=ok+BUFFER_LATE_EXTRA && dist<=TAP_RADIUS) grade='OK';
+
+  if(grade){
+    combo++; score += (grade==='Perfect'?120:grade==='Good'?90:70)*(1+Math.floor(combo/10)*0.15);
+    level=1+Math.floor(combo/LEVEL_STEP);
+    dur=Math.max(MIN_DUR, dur*(SPEEDUP+Math.min(0.04*(level-1),0.10)));
+    SC.textContent=`Score ${score}`; CM.textContent=`Combo ${combo}`; BS.textContent=`Best ${best} / Lv.${bestLv}`;
+    assist=Math.max(1.0,assist-0.08);
+    sparkle(tgt.x,tgt.y); hitSfx(1+Math.random()*0.05);
+    // 相手コートの着弾点を決めて、相手側レグへ
+    lastBotIdx=idxBot;
+    idxTop=pickOppFromBot(idxBot);
+    phase='toOpp'; t0=now;
+  }else{
+    if(delta<-(ok+0.05)){ tapBuf=null; onMiss(now); }
+  }
+  tapBuf=null;
 }
 
-/* ====== スタート/ゲームオーバー ====== */
+/* ====== スタート/終了 ====== */
 function startGame(){
-  score=0; combo=0; level=1; dur=START_DUR; assist=1.0;
+  score=0;combo=0;level=1;dur=START_DUR;assist=1.0;
   resetHUD(); S.style.display='none'; O.style.display='none';
-  idx = Math.floor(Math.random()*N); t0 = performance.now()/1000; playing=true;
+  idxBot=Math.floor(Math.random()*N); phase='toPlayer'; t0=performance.now()/1000; playing=true;
 }
-function gameOver(){
-  playing=false;
-  if(score>best){ best=score; bestLv=level; localStorage.setItem('PT_best',best); localStorage.setItem('PT_bestLv',bestLv); }
+function finishGame(){
+  playing=false; if(score>best){best=score;bestLv=level;localStorage.setItem('PT_best',best);localStorage.setItem('PT_bestLv',bestLv);}
   F.textContent=`${score} / Lv.${level}`; O.style.display='flex'; resetHUD();
 }
-
 GO.onclick=startGame; RY.onclick=startGame;
 
 /* ====== 起動 ====== */
-Promise.allSettled([load(BG_SRC), load(CH_SRC)]).then(([bg,ch])=>{
+Promise.allSettled([load(BG_SRC),load(CH_SRC)]).then(([bg,ch])=>{
   if(bg.status==='fulfilled') imgBG=bg.value;
   if(ch.status==='fulfilled') imgCH=ch.value;
-  resize(); layout(); requestAnimationFrame(loop);
+  resize(); requestAnimationFrame(loop);
 });
+addEventListener('resize',resize);
+(function judgeLoop(){ if(playing) resolveTap(performance.now()/1000); requestAnimationFrame(judgeLoop); })();
 })();
 </script>
