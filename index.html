@@ -4,11 +4,9 @@
 <style>
   html,body{margin:0;height:100%;background:#0b1224;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",system-ui,sans-serif}
   #cv{position:fixed;inset:0;touch-action:manipulation}
-  .hud{position:fixed;top:10px;left:10px;right:10px;display:flex;gap:14px;font-weight:800;z-index:2;
-       text-shadow:0 2px 0 rgba(0,0,0,.45)}
+  .hud{position:fixed;top:10px;left:10px;right:10px;display:flex;gap:14px;font-weight:800;z-index:2;text-shadow:0 2px 0 rgba(0,0,0,.45)}
   .pill{background:rgba(0,0,0,.35);padding:10px 14px;border-radius:18px}
-  .card{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-        background:rgba(0,0,0,.55);text-align:center;padding:18px;z-index:3}
+  .card{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.55);text-align:center;padding:18px;z-index:3}
   .btn{margin-top:14px;padding:12px 22px;border:0;border-radius:12px;background:#ffd34d;color:#222;font-weight:800;box-shadow:0 5px 0 #caa132}
   .sub{opacity:.9;margin-top:8px}
 </style>
@@ -35,39 +33,36 @@
 
 <script>
 (()=>{
-/* ====== 設定 ====== */
+/* ====== 定数（ここだけ触れば高さ＆難度を微調整） ====== */
 const DEFAULT_BG_URL = './2FE72969-9374-4D85-ADBC-28EADEE8437A.png';
-const NET_Y_RATIO = 0.545;                 // 背景のネット上辺（画面比）
-const PLAYER_DEPTH_RATIO = 0.26;           // 自分側のスポットの奥行き（ネットからの比）
-const TARGET_COUNT = 7;
+const NET_Y_RATIO        = 0.545;  // 背景ネットの上辺（画面比）
+const PLAYER_DEPTH_RATIO = 0.18;   // ★自分の狙いスポットをネットからどれだけ下に置くか（小さいほど上）
+const RIGHT_PADDLE_UP    = -8;     // ★相手ラケットのネットからのオフセット（負で上）
+const LEFT_PADDLE_DEPTH  = 0.16;   // ★自分側ラケットのネットからの比（小さいほど上）
+const TARGET_COUNT=7;
 
 const START_DUR=1.40, SPEEDUP=0.94, MIN_DUR=0.62;
 const GRAV=1400;
 const BASE_R=30, SHRINK=34;
-const TOL_PERF=9, TOL_GOOD=16, TOL_OK=24;  // リング半径一致の許容（ピクセル）
-const NEAR=46;                             // 位置の近さ
+const TOL_PERF=9, TOL_GOOD=16, TOL_OK=24;
+const NEAR=46;
 const SCORE_PERF=100, SCORE_GOOD=60, SCORE_OK=30;
-const KEY_BEST='PT_pages_best_v2';
+const KEY_BEST='PT_pages_best_v3';
 const BG_BRIGHTEN = 0.10;
 
 /* ====== 要素 ====== */
-const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
-const HUD_S = document.getElementById('sc');
-const HUD_C = document.getElementById('cc');
-const HUD_B = document.getElementById('bc');
-const START = document.getElementById('start');
-const OVER = document.getElementById('over');
-const FINAL = document.getElementById('final');
-const GO = document.getElementById('go');
-const RETRY = document.getElementById('retry');
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const HUD_S=document.getElementById('sc'), HUD_C=document.getElementById('cc'), HUD_B=document.getElementById('bc');
+const START=document.getElementById('start'), OVER=document.getElementById('over'), FINAL=document.getElementById('final');
+const GO=document.getElementById('go'), RETRY=document.getElementById('retry');
 
-/* ====== 便利 ====== */
+/* ====== ユーティリティ ====== */
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const rnd=(a,b)=>a+Math.random()*(b-a);
 
-/* ====== 背景 ====== */
+/* ====== 背景ロード ====== */
 let bgImg=null, bgOK=false;
-(function loadBG(){
+(function(){
   const i=new Image();
   i.onload=()=>{ bgImg=i; bgOK=true; };
   i.onerror=()=>{ bgImg=null; bgOK=false; };
@@ -86,9 +81,8 @@ function resize(){
   layoutSpots();
 }
 function layoutSpots(){
-  const m=18;
-  spotsBot.length=0; spotsTop.length=0;
-  const usable = W-m*2 - 40;
+  const m=18; spotsBot.length=0; spotsTop.length=0;
+  const usable=W-m*2 - 40;
   const yTop = Math.max(70, NET_Y - H*0.10);
   const yBot = Math.min(H-90, NET_Y + H*PLAYER_DEPTH_RATIO);
   for(let i=0;i<TARGET_COUNT;i++){
@@ -102,75 +96,67 @@ function layoutSpots(){
 let pos={x:0,y:0}, vel={x:0,y:0}, phase='toPlayer', dur=START_DUR, t0=0;
 let idxBot=3, idxTop=3;
 let score=0, combo=0, best=Number(localStorage.getItem(KEY_BEST)||0), speedLv=1;
-HUD_B.textContent = `Best ${best} / Lv.${speedLv}`;
+HUD_B.textContent=`Best ${Math.round(best)} / Lv.${speedLv}`;
 let playing=false;
 let last=performance.now()/1e3, tbg=0;
 
-/* ====== パドル位置 ====== */
-function paddleRight(){ return {x: W*0.74, y: NET_Y - 18}; } // 相手（右）少し上
-function paddleLeft(){  return {x: W*0.26, y: NET_Y + H*0.22}; } // 自分見た目（左）も上
+/* ====== パドル座標（上寄せ版） ====== */
+function paddleRight(){ return {x: W*0.74, y: NET_Y + RIGHT_PADDLE_UP}; }
+function paddleLeft(){  return {x: W*0.26, y: NET_Y + H*LEFT_PADDLE_DEPTH}; }
 
-/* ====== ラベル・エフェクト ====== */
-let label=null; // {text,x,y,a}
-let sparks=[]; // {x,y,vx,vy,a,r}
-function addSparks(x,y,n=18){
-  for(let i=0;i<n;i++){
-    sparks.push({x,y,
-      vx:rnd(-160,160), vy:rnd(-220,-80), a:1, r:rnd(1.6,3.3)
-    });
-  }
-}
+/* ====== ラベル＆スパーク ====== */
+let label=null; let sparks=[];
+function floatLabel(txt,x,y){ label={text:txt,x,y,a:1}; }
+function addSparks(x,y,n=18){ for(let i=0;i<n;i++){ sparks.push({x,y,vx:rnd(-160,160),vy:rnd(-220,-80),a:1,r:rnd(1.6,3.3)}); } }
 function drawSparks(dt){
-  const next=[];
-  for(const s of sparks){
-    s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=420*dt; s.a-=1.8*dt;
-    if(s.a>0){ next.push(s); ctx.globalAlpha=s.a;
-      ctx.fillStyle='#ffe79a'; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,6.283); ctx.fill();
-      ctx.globalAlpha=1;
-    }
-  }
+  const next=[]; for(const s of sparks){ s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=420*dt; s.a-=1.8*dt;
+    if(s.a>0){ next.push(s); ctx.globalAlpha=s.a; ctx.fillStyle='#ffe79a';
+      ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,6.283); ctx.fill(); ctx.globalAlpha=1; } }
   sparks=next;
 }
-function floatLabel(txt,x,y){ label={text:txt,x,y,a:1}; }
 function drawLabel(dt){
-  if(!label) return;
-  label.y-=28*dt; label.a-=1.6*dt;
+  if(!label) return; label.y-=28*dt; label.a-=1.6*dt;
   if(label.a<=0){ label=null; return; }
   ctx.globalAlpha=label.a; ctx.fillStyle=(label.text==='Perfect')?'#ffe680':'#aee1ff';
   ctx.font='bold 18px system-ui'; ctx.textAlign='center'; ctx.fillText(label.text,label.x,label.y);
   ctx.globalAlpha=1;
 }
 
-/* ====== SFX（WebAudioで卓球“パチッ”） ====== */
-let ac=null;
-function ensureAC(){ if(!ac){ ac=new (window.AudioContext||window.webkitAudioContext)(); } if(ac.state==='suspended') ac.resume(); }
-function pongClick(p=1){
-  if(!ac) return;
-  const now=ac.currentTime;
-  // クリックの芯
+/* ====== サウンド：卓球クリック（ラバー＋卓面） ====== */
+let ac=null; function ensureAC(){ if(!ac){ ac=new (window.AudioContext||window.webkitAudioContext)(); } if(ac.state==='suspended') ac.resume(); }
+function pingPongHit(power=1){
+  if(!ac) return; const now=ac.currentTime;
+
+  // 高域クリック（ラバー）
   const o=ac.createOscillator(); o.type='square';
-  o.frequency.setValueAtTime(2100*p, now);
-  const g=ac.createGain(); g.gain.setValueAtTime(0.0001, now);
-  g.gain.exponentialRampToValueAtTime(0.22, now+0.004);
-  g.gain.exponentialRampToValueAtTime(0.0001, now+0.08);
+  o.frequency.setValueAtTime(2400*power, now);
+  const og=ac.createGain(); og.gain.setValueAtTime(0.0001, now);
+  og.gain.exponentialRampToValueAtTime(0.24, now+0.004);
+  og.gain.exponentialRampToValueAtTime(0.0001, now+0.07);
 
-  // 短いノイズでラバー感
-  const noiseBuf=ac.createBuffer(1, 4410, 44100);
-  const data=noiseBuf.getChannelData(0);
-  for(let i=0;i<data.length;i++) data[i]=(Math.random()*2-1)*Math.exp(-i/500);
-  const nb=ac.createBufferSource(); nb.buffer=noiseBuf;
-  const nf=ac.createBiquadFilter(); nf.type='bandpass'; nf.frequency.value=1400*p; nf.Q.value=6;
-  const ng=ac.createGain(); ng.gain.value=0.25;
+  // 短ノイズ（帯域強調）
+  const noiseBuf=ac.createBuffer(1, 3000, 44100);
+  const d=noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.exp(-i/400);
+  const ns=ac.createBufferSource(); ns.buffer=noiseBuf;
+  const bp=ac.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1700*power; bp.Q.value=7;
+  const ng=ac.createGain(); ng.gain.value=0.28;
 
-  o.connect(g); g.connect(ac.destination);
-  nb.connect(nf).connect(ng).connect(ac.destination);
+  // 卓面の“ポコ”低域
+  const low=ac.createOscillator(); low.type='sine'; low.frequency.setValueAtTime(170, now);
+  const lg=ac.createGain(); lg.gain.setValueAtTime(0.0001, now);
+  lg.gain.exponentialRampToValueAtTime(0.10*power, now+0.01);
+  lg.gain.exponentialRampToValueAtTime(0.0001, now+0.12);
 
-  o.start(now); o.stop(now+0.09);
-  nb.start(now); nb.stop(now+0.06);
+  o.connect(og).connect(ac.destination);
+  ns.connect(bp).connect(ng).connect(ac.destination);
+  low.connect(lg).connect(ac.destination);
+
+  o.start(now);   o.stop(now+0.08);
+  ns.start(now);  ns.stop(now+0.06);
+  low.start(now); low.stop(now+0.13);
 }
 function missSFX(){
-  if(!ac) return;
-  const now=ac.currentTime;
+  if(!ac) return; const now=ac.currentTime;
   const o=ac.createOscillator(); o.type='triangle'; o.frequency.setValueAtTime(260,now);
   const g=ac.createGain(); g.gain.setValueAtTime(0.001,now);
   g.gain.exponentialRampToValueAtTime(0.16,now+0.01);
@@ -179,50 +165,33 @@ function missSFX(){
 }
 
 /* ====== 入力 ====== */
-function pick(px,py,arr){
-  for(let i=0;i<arr.length;i++){ const s=arr[i]; const dx=px-s.x, dy=py-s.y;
-    if(dx*dx+dy*dy <= (s.r*2.4)*(s.r*2.4)) return i;
-  } return -1;
-}
+function pick(px,py,arr){ for(let i=0;i<arr.length;i++){ const s=arr[i],dx=px-s.x,dy=py-s.y; if(dx*dx+dy*dy<=(s.r*2.4)*(s.r*2.4)) return i; } return -1; }
 function onDown(e){
   const r=cv.getBoundingClientRect();
   const x=(e.clientX ?? e.touches?.[0]?.clientX)-r.left;
   const y=(e.clientY ?? e.touches?.[0]?.clientY)-r.top;
-
-  ensureAC(); // iOS対策：初タップでAudioContext解禁
-
-  if(!playing) return;                      // タイトル時は何もしない
-  if(phase!=='toPlayer') return;            // 自分の番だけ判定
+  ensureAC();
+  if(!playing) return;
+  if(phase!=='toPlayer') return;
 
   const idx=pick(x,y,spotsBot); if(idx<0 || idx!==idxBot) return;
-  const rr=ringRadiusNow();
-  const dist=Math.hypot(x-spotsBot[idx].x, y-spotsBot[idx].y);
+  const rr=ringRadiusNow(), dist=Math.hypot(x-spotsBot[idx].x, y-spotsBot[idx].y);
   const diff=Math.abs(rr-BASE_R);
-  const onRadius =
-      (diff<=TOL_PERF) ? 'Perfect' :
-      (diff<=TOL_GOOD) ? 'Good' :
-      (diff<=TOL_OK)   ? 'OK'   : null;
+  const onRadius = (diff<=TOL_PERF)?'Perfect':(diff<=TOL_GOOD)?'Good':(diff<=TOL_OK)?'OK':null;
 
   if(onRadius && dist<=NEAR){
-    // スコア処理
-    combo++;
-    speedLv = 1 + Math.floor(combo/10);
-    let add = (onRadius==='Perfect')?SCORE_PERF:(onRadius==='Good')?SCORE_GOOD:SCORE_OK;
-    add *= (1 + Math.floor(combo/10)); // 小さな倍率
-    score += add;
-    updateHUD();
+    combo++; speedLv=1+Math.floor(combo/10);
+    let add=(onRadius==='Perfect')?SCORE_PERF:(onRadius==='Good')?SCORE_GOOD:SCORE_OK;
+    add*= (1+Math.floor(combo/10));
+    score+=add; updateHUD();
 
-    // 視覚・音
-    floatLabel(onRadius, spotsBot[idx].x, spotsBot[idx].y-42);
-    addSparks(spotsBot[idx].x,spotsBot[idx].y, 20);
-    pongClick(1.0);
+    floatLabel(onRadius,spotsBot[idx].x,spotsBot[idx].y-42);
+    addSparks(spotsBot[idx].x,spotsBot[idx].y,22);
+    pingPongHit(1.0);
 
-    // 速度UP & 相手へ
-    dur=Math.max(MIN_DUR, dur*SPEEDUP);
+    dur=Math.max(MIN_DUR,dur*SPEEDUP);
     startLegToPaddle();
-  } else {
-    miss();
-  }
+  } else { miss(); }
 }
 addEventListener('pointerdown',onDown,{passive:true});
 addEventListener('touchstart',onDown,{passive:true});
@@ -230,28 +199,18 @@ addEventListener('mousedown',onDown);
 
 /* ====== ループ ====== */
 function loop(){
-  const now=performance.now()/1e3, dt=Math.min(.033, now-last); last=now; tbg+=dt;
-
-  ctx.clearRect(0,0,W,H);
-  drawBG();
-  drawNeon(tbg);
+  const now=performance.now()/1e3, dt=Math.min(.033,now-last); last=now; tbg+=dt;
+  ctx.clearRect(0,0,W,H); drawBG(); drawNeon(tbg);
 
   if(playing){
-    // 物理
     pos.x+=vel.x*dt; pos.y+=vel.y*dt + 0.5*GRAV*dt*dt; vel.y+=GRAV*dt;
+    drawBall(pos.x,pos.y); drawPaddles(dt); drawSparks(dt); drawLabel(dt);
 
-    // ボール・パドル
-    drawBall(pos.x,pos.y);
-    drawPaddles(dt);
-    drawSparks(dt);
-    drawLabel(dt);
-
-    // セグメント終端
-    if(now - t0 >= dur - 0.01){
+    if(now-t0>=dur-0.01){
       if(phase==='toPlayer'){ miss(); }
-      else { // 相手ヒット
+      else{
         const hit=paddleRight(); pos.x=hit.x; pos.y=hit.y;
-        pongClick(0.85);
+        pingPongHit(0.85);
         startLegToPlayer();
       }
     }
@@ -260,31 +219,12 @@ function loop(){
 }
 
 /* ====== HUD ====== */
-function updateHUD(){
-  HUD_S.textContent = `Score ${Math.round(score)}`;
-  HUD_C.textContent = `Combo ${combo}`;
-  HUD_B.textContent = `Best ${Math.round(best)} / Lv.${speedLv}`;
-}
+function updateHUD(){ HUD_S.textContent=`Score ${Math.round(score)}`; HUD_C.textContent=`Combo ${combo}`; HUD_B.textContent=`Best ${Math.round(best)} / Lv.${speedLv}`; }
 
-/* ====== セグメント管理 ====== */
-function ringRadiusNow(){
-  const now=performance.now()/1e3;
-  const left=Math.max(0, dur-(now-t0));
-  return BASE_R + SHRINK*(left/dur);
-}
-function startLegToPlayer(){
-  phase='toPlayer'; t0=performance.now()/1e3;
-  idxBot=Math.floor(Math.random()*TARGET_COUNT);
-  const d=spotsBot[idxBot]; const Tm=dur;
-  vel.x=(d.x-pos.x)/Tm;
-  vel.y=(d.y-pos.y-0.5*GRAV*Tm*Tm)/Tm;
-}
-function startLegToPaddle(){
-  phase='toPaddle'; t0=performance.now()/1e3;
-  const d=paddleRight(); const Tm=dur;
-  vel.x=(d.x-pos.x)/Tm;
-  vel.y=(d.y-pos.y-0.5*GRAV*Tm*Tm)/Tm;
-}
+/* ====== セグメント ====== */
+function ringRadiusNow(){ const now=performance.now()/1e3, left=Math.max(0,dur-(now-t0)); return BASE_R + SHRINK*(left/dur); }
+function startLegToPlayer(){ phase='toPlayer'; t0=performance.now()/1e3; idxBot=Math.floor(Math.random()*TARGET_COUNT); const d=spotsBot[idxBot]; const Tm=dur; vel.x=(d.x-pos.x)/Tm; vel.y=(d.y-pos.y-0.5*GRAV*Tm*Tm)/Tm; }
+function startLegToPaddle(){ phase='toPaddle'; t0=performance.now()/1e3; const d=paddleRight(); const Tm=dur; vel.x=(d.x-pos.x)/Tm; vel.y=(d.y-pos.y-0.5*GRAV*Tm*Tm)/Tm; }
 
 /* ====== 描画 ====== */
 function drawBG(){
@@ -295,42 +235,28 @@ function drawBG(){
     ctx.drawImage(bgImg,x,y,w,h);
     ctx.fillStyle=`rgba(255,255,255,${BG_BRIGHTEN})`; ctx.fillRect(0,0,W,H);
   }else{
-    // フォールバック：暗い楕円で奥行き
     ctx.fillStyle='#0b1224'; ctx.fillRect(0,0,W,H);
     ctx.fillStyle='#101a34'; ctx.beginPath(); ctx.ellipse(W*0.45,H*0.3,W*0.9,H*0.5,0,0,6.283); ctx.fill();
     ctx.fillStyle='#0f1930'; ctx.beginPath(); ctx.ellipse(W*0.55,H*0.75,W*1.1,H*0.65,0,0,6.283); ctx.fill();
   }
 }
-function drawNeon(t){
-  ctx.globalCompositeOperation='lighter';
-  const a=0.05+0.05*Math.sin(t*3.1)+0.02*Math.sin(t*5.3);
-  ctx.fillStyle=`rgba(120,180,255,${a})`;
-  ctx.fillRect(0,0,W,H*0.34);
-  ctx.globalCompositeOperation='source-over';
-}
+function drawNeon(t){ ctx.globalCompositeOperation='lighter'; const a=0.05+0.05*Math.sin(t*3.1)+0.02*Math.sin(t*5.3); ctx.fillStyle=`rgba(120,180,255,${a})`; ctx.fillRect(0,0,W,H*0.34); ctx.globalCompositeOperation='source-over'; }
 function drawBall(x,y){
   const target=(phase==='toPlayer')?spotsBot[idxBot]:paddleRight();
   const shadowY=target.y, sh=Math.max(3,18-(shadowY-y)*0.03);
-  ctx.beginPath(); ctx.fillStyle='rgba(0,0,0,.25)';
-  ctx.ellipse(x, shadowY+6, sh, sh*0.5, 0, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.fillStyle='rgba(0,0,0,.25)'; ctx.ellipse(x,shadowY+6,sh,sh*0.5,0,0,6.283); ctx.fill();
   ctx.beginPath(); ctx.fillStyle='#ffe48a'; ctx.arc(x,y,7,0,6.283); ctx.fill();
   ctx.beginPath(); ctx.fillStyle='rgba(255,255,255,.85)'; ctx.arc(x-2,y-2,2,0,6.283); ctx.fill();
 
-  // リング
-  const rr=ringRadiusNow();
-  const isPlayer=(phase==='toPlayer');
+  const rr=ringRadiusNow(); const isPlayer=(phase==='toPlayer');
   const rx=isPlayer?spotsBot[idxBot].x:spotsTop[idxTop].x;
   const ry=isPlayer?spotsBot[idxBot].y:spotsTop[idxTop].y;
-  ctx.beginPath(); ctx.strokeStyle=isPlayer?'rgba(255,220,120,.95)':'rgba(140,200,255,.95)';
-  ctx.lineWidth=3; ctx.arc(rx,ry,BASE_R,0,6.283); ctx.stroke();
-  ctx.beginPath(); ctx.setLineDash([4,4]);
-  ctx.strokeStyle=isPlayer?'rgba(255,255,140,.95)':'rgba(160,220,255,.9)';
-  ctx.lineWidth=3; ctx.arc(rx,ry,rr,0,6.283); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle=isPlayer?'rgba(255,230,120,.95)':'rgba(170,220,255,.95)';
-  ctx.font='bold 13px system-ui'; ctx.textAlign='center'; ctx.fillText(isPlayer?'TAP!':'HIT!', rx, ry-BASE_R-10);
+  ctx.beginPath(); ctx.strokeStyle=isPlayer?'rgba(255,220,120,.95)':'rgba(140,200,255,.95)'; ctx.lineWidth=3; ctx.arc(rx,ry,BASE_R,0,6.283); ctx.stroke();
+  ctx.beginPath(); ctx.setLineDash([4,4]); ctx.strokeStyle=isPlayer?'rgba(255,255,140,.95)':'rgba(160,220,255,.9)'; ctx.lineWidth=3; ctx.arc(rx,ry,rr,0,6.283); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle=isPlayer?'rgba(255,230,120,.95)':'rgba(170,220,255,.95)'; ctx.font='bold 13px system-ui'; ctx.textAlign='center'; ctx.fillText(isPlayer?'TAP!':'HIT!', rx, ry-BASE_R-10);
 }
 function drawPaddles(dt){
-  if(!playing) return; // タイトルでは非表示
+  if(!playing) return;
   const pr=paddleRight(), pl=paddleLeft();
   drawPaddle(pl.x, pl.y,  0.06 + Math.sin(tbg*1.7)*0.05);
   drawPaddle(pr.x, pr.y, -0.10 + Math.sin(tbg*1.6)*0.06);
@@ -343,33 +269,23 @@ function drawPaddle(x,y,rot){
   ctx.restore(); ctx.shadowColor='transparent';
 }
 
-/* ====== ミス & 終了 ====== */
+/* ====== ゲーム進行 ====== */
 function miss(){
-  missSFX();
-  playing=false;
-  best=Math.max(best, score);
-  localStorage.setItem(KEY_BEST, best);
-  HUD_B.textContent = `Best ${Math.round(best)} / Lv.${speedLv}`;
-  FINAL.textContent = `Score ${Math.round(score)} / Best ${Math.round(best)} / Lv.${speedLv}`;
+  missSFX(); playing=false; best=Math.max(best,score); localStorage.setItem(KEY_BEST,best);
+  HUD_B.textContent=`Best ${Math.round(best)} / Lv.${speedLv}`;
+  FINAL.textContent=`Score ${Math.round(score)} / Best ${Math.round(best)} / Lv.${speedLv}`;
   OVER.style.display='flex';
 }
-
-/* ====== Start/Retry ====== */
 function startGame(){
   ensureAC();
   score=0; combo=0; speedLv=1; updateHUD();
   OVER.style.display='none'; START.style.display='none';
-  dur=START_DUR;
-  idxTop=3; idxBot=3;
-  const net=NET_Y;
-  pos.x=W*0.5; pos.y=net-90;
-  startLegToPlayer();
-  playing=true;
+  dur=START_DUR; idxTop=3; idxBot=3; pos.x=W*0.5; pos.y=NET_Y-90;
+  startLegToPlayer(); playing=true;
 }
 GO.onclick=startGame; RETRY.onclick=()=>{ START.style.display='flex'; OVER.style.display='none'; };
 
 /* ====== boot ====== */
-addEventListener('resize', resize);
-resize(); requestAnimationFrame(loop);
+addEventListener('resize',resize); resize(); requestAnimationFrame(loop);
 })();
 </script>
