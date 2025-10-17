@@ -1,9 +1,9 @@
 <!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>PingTap — Retro Rally (safe input/failsafe)</title>
+<title>PingTap — Retro Rally (cache-safe)</title>
 <style>
   html,body{margin:0;height:100%;background:#0b1324;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
-  #cv{position:fixed;inset:0;background:#0b1324}
+  #cv{position:fixed;inset:0;background:#0b1324;touch-action:none}
   .hud{position:fixed;top:10px;left:10px;right:10px;display:flex;gap:12px;justify-content:space-between;pointer-events:none}
   .pill{min-width:160px;padding:10px 14px;border-radius:16px;background:rgba(0,0,0,.35);backdrop-filter:blur(2px);font-weight:800}
   .card{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.55);text-align:center;padding:18px}
@@ -33,11 +33,11 @@
 <script>
 (()=>{
 /* ====== 基本パラメータ ====== */
-const N=7;                               // 位置スロット数
+const N=7;
 const START_DUR=1.60, SPEEDUP=0.93, MIN_DUR=0.56;
 const RING_BASE=30, RING_SHRINK=32;
-const MATCH_TOL=7.5, HIT_TOL=42;         // 判定ゆるめ
-const NET_Y_FIXED=0.60;                  // 背景基準のネット高さ（画面比）
+const MATCH_TOL=7.5, HIT_TOL=42;
+const NET_Y_FIXED=0.60;
 const BG_BRIGHTEN=0.10;
 
 /* ====== DOM ====== */
@@ -48,8 +48,6 @@ const SC=document.getElementById('sc'), CO=document.getElementById('co'), BE=doc
 
 /* ====== 数学小物 ====== */
 const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
-const lerp=(a,b,t)=>a+(b-a)*t;
-const rand=(a,b)=>a+Math.random()*(b-a);
 
 /* ====== サイズ/レイアウト ====== */
 let W=0,H=0,dpr=1, spotsTop=[], spotsBot=[];
@@ -86,11 +84,11 @@ let bgImg=null, bgLoaded=false;
 let g=1400,pos={x:0,y:0},vel={x:0,y:0},phase='toPlayer',dur=START_DUR,t0=0;
 let idxBot=3, idxTop=3;
 let playing=false, score=0, combo=0, level=1;
-let best=Number(localStorage.getItem('PT_best')||0);
-BE.textContent=`Best ${best} / Lv.${level}`;
+let best=Number(localStorage.getItem('PT2_best')||0); // ←新キー
+BE.textContent=`Best ${best|0} / Lv.${level}`;
 let label=null, sparks=[], flash=0;
 
-/* ====== サウンド（軽量ピンポン） ====== */
+/* ====== SFX ====== */
 let ac=null;
 function ping(freq=1200, t=0.06){
   if(!ac) ac=new (window.AudioContext||window.webkitAudioContext)();
@@ -104,7 +102,7 @@ function ping(freq=1200, t=0.06){
   o.start(); n.start(); o.stop(ac.currentTime+t); n.stop(ac.currentTime+t);
 }
 
-/* ====== 入力（pointerdownのみ & デバウンス） ====== */
+/* ====== 入力（pointerdownのみ＋デバウンス） ====== */
 let tapLock=false;
 cv.addEventListener('pointerdown', (e)=>{
   if(!playing || phase!=='toPlayer' || tapLock) return;
@@ -113,102 +111,62 @@ cv.addEventListener('pointerdown', (e)=>{
   const r=cv.getBoundingClientRect();
   const x=e.clientX - r.left, y=e.clientY - r.top;
 
-  // 正しいターゲットのみ判定
   const s=spotsBot[idxBot];
   const dist=Math.hypot(x-s.x, y-s.y);
   const rr=ringRadiusNow();
   const diff=Math.abs(rr-RING_BASE);
-  const onRadius = diff<=MATCH_TOL;
-  const near = dist<=HIT_TOL;
+  const onRadius = diff<=7.5;
+  const near = dist<=42;
 
   if(onRadius && near){
-    // スコア
     const mult = (diff<=2.0)? 3 : (diff<=4.5)? 2 : 1;
-    combo++; score += 100*mult* (1+Math.floor((level-1)/2));
+    combo++; score += 100*mult*(1+Math.floor((level-1)/2));
     SC.textContent=`Score ${score}`; CO.textContent=`Combo ${combo}`;
-    label={text: (mult===3?'PERFECT!':mult===2?'GREAT!':'GOOD!'), x:s.x, y:s.y-38, a:1};
-    sparkle(s.x,s.y);
-    ping(1400,0.05);
-    speedUp();
-    startLegToPaddle();
+    label={text:(mult===3?'PERFECT!':mult===2?'GREAT!':'GOOD!'),x:s.x,y:s.y-38,a:1};
+    sparkle(s.x,s.y); ping(1400,0.05);
+    speedUp(); startLegToPaddle();
   }else{
     miss();
   }
 },{passive:false});
 
-/* ====== エフェクト ====== */
+/* ====== 演出 ====== */
 function sparkle(x,y){ for(let i=0;i<12;i++){ sparks.push({x,y,vx:(Math.random()*2-1)*130,vy:(Math.random()*-1-0.2)*170,a:1,r:2+Math.random()*2}); } }
 function drawSparks(dt){ const ns=[]; for(const s of sparks){ s.x+=s.vx*dt; s.y+=s.vy*dt; s.vy+=320*dt; s.a-=1.8*dt; if(s.a>0){ ns.push(s); ctx.globalAlpha=s.a; ctx.fillStyle='#ffe699'; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,6.28); ctx.fill(); ctx.globalAlpha=1; } } sparks=ns; }
 function drawLabel(dt){
   if(!label) return;
   label.y-=26*dt; label.a-=1.6*dt;
   if(label.a<=0){ label=null; return; }
-  ctx.globalAlpha=label.a;
-  ctx.fillStyle=(label.text==='PERFECT!')?'#ffec8a':'#aee1ff';
-  ctx.font='bold 18px system-ui';
-  ctx.textAlign='center';
-  ctx.fillText(label.text, label.x, label.y);
-  ctx.globalAlpha=1;
+  ctx.globalAlpha=label.a; ctx.fillStyle=(label.text==='PERFECT!')?'#ffec8a':'#aee1ff';
+  ctx.font='bold 18px system-ui'; ctx.textAlign='center'; ctx.fillText(label.text,label.x,label.y); ctx.globalAlpha=1;
 }
 
-/* ====== ゲーム進行 ====== */
+/* ====== 進行 ====== */
 function ringRadiusNow(){ const now=performance.now()/1e3, left=Math.max(0,dur-(now-t0)); return RING_BASE + RING_SHRINK*(left/dur); }
-function startLegToPlayer(){
-  phase='toPlayer'; t0=performance.now()/1e3;
-  idxBot=Math.floor(Math.random()*N);
-  const d=spotsBot[idxBot], Tm=dur;
-  vel.x=(d.x-pos.x)/Tm; vel.y=(d.y-pos.y-0.5*g*Tm*Tm)/Tm;
-}
-function startLegToPaddle(){
-  phase='toPaddle'; t0=performance.now()/1e3;
-  // 相手側はランダムに横ズラし（違和感対策）
-  idxTop=Math.floor(Math.random()*N);
-  const d=spotsTop[idxTop], Tm=dur;
-  vel.x=(d.x-pos.x)/Tm; vel.y=(d.y-pos.y-0.5*g*Tm*Tm)/Tm;
-}
-function speedUp(){
-  const before=dur;
-  dur=Math.max(MIN_DUR, dur*SPEEDUP);
-  // 体感用にレベルを更新
-  const lv=Math.min(10,1+Math.floor((START_DUR-dur)/(START_DUR-MIN_DUR+1e-9)*9));
-  level=lv; BE.textContent=`Best ${best} / Lv.${level}`;
-}
-
-function miss(){
-  flash=1; ping(220,0.20);
-  gameOver();
-}
+function startLegToPlayer(){ phase='toPlayer'; t0=performance.now()/1e3; idxBot=Math.floor(Math.random()*N); const d=spotsBot[idxBot], Tm=dur; vel.x=(d.x-pos.x)/Tm; vel.y=(d.y-pos.y-0.5*g*Tm*Tm)/Tm; }
+function startLegToPaddle(){ phase='toPaddle'; t0=performance.now()/1e3; idxTop=Math.floor(Math.random()*N); const d=spotsTop[idxTop], Tm=dur; vel.x=(d.x-pos.x)/Tm; vel.y=(d.y-pos.y-0.5*g*Tm*Tm)/Tm; }
+function speedUp(){ dur=Math.max(MIN_DUR, dur*SPEEDUP); level=Math.min(10,1+Math.floor((START_DUR-dur)/(START_DUR-MIN_DUR+1e-9)*9)); BE.textContent=`Best ${best|0} / Lv.${level}`; }
+function miss(){ flash=1; ping(220,0.20); gameOver(); }
 
 /* ====== ループ ====== */
-let last=performance.now()/1e3, tbg=0;
+let last=performance.now()/1e3;
 function loop(){
-  const now=performance.now()/1e3, dt=Math.min(.033, now-last); last=now; tbg+=dt;
+  const now=performance.now()/1e3, dt=Math.min(.033, now-last); last=now;
 
-  // 背景
-  drawBG(tbg);
-
+  drawBG();
   if(playing){
-    // 物理
-    pos.x+=vel.x*dt; pos.y+=vel.y*dt + 0.5*g*dt*dt; vel.y+=g*dt;
+    pos.x+=vel.x*dt; pos.y+=vel.y*dt + 0.5*1400*dt*dt; vel.y+=1400*dt;
+    drawBall(pos.x,pos.y); drawSparks(dt); drawLabel(dt);
 
-    // 影 & ボール & リング
-    drawBall(pos.x,pos.y);
-    drawSparks(dt); drawLabel(dt);
+    // フェイルセーフ
+    if(pos.y>H+160 || pos.x<-160 || pos.x>W+160) miss();
+    if(now - t0 > dur + 0.9) miss();
 
-    // 画面外 or タイムアウトのフェイルセーフ
-    if(pos.y > H+160 || pos.x<-160 || pos.x>W+160){ miss(); }
-    if(now - t0 > dur + 0.9){ miss(); } // セグメント進行が壊れたら終了
-
-    // セグメント終端
     if(now - t0 >= dur - 0.01){
-      if(phase==='toPlayer'){ miss(); }
-      else{ // 相手ヒット
-        ping(900,0.06);
-        startLegToPlayer();
-      }
+      if(phase==='toPlayer') miss();
+      else { ping(900,0.06); startLegToPlayer(); }
     }
   }
-
   if(flash>0){ ctx.fillStyle=`rgba(255,0,0,${flash*0.25})`; ctx.fillRect(0,0,W,H); flash=Math.max(0,flash-0.05); }
   requestAnimationFrame(loop);
 }
@@ -222,7 +180,6 @@ function drawBG(){
     ctx.drawImage(bgImg,x,y,w,h);
     ctx.fillStyle=`rgba(255,255,255,${BG_BRIGHTEN})`; ctx.fillRect(0,0,W,H);
   }else{
-    // フォールバック（暗背景+テーブル）
     ctx.fillStyle='#0b1324'; ctx.fillRect(0,0,W,H);
     ctx.fillStyle='#173259'; ctx.fillRect(W*0.05,H*0.55,W*0.90,H*0.25);
     ctx.fillStyle='#e9e2c4'; ctx.fillRect(W*0.495,H*0.55,4,H*0.25);
@@ -241,7 +198,6 @@ function drawBall(x,y){
   const rx=isPlayer?spotsBot[idxBot].x:spotsTop[idxTop].x;
   const ry=isPlayer?spotsBot[idxBot].y:spotsTop[idxTop].y;
 
-  // ガイド
   ctx.beginPath(); ctx.strokeStyle=isPlayer?'rgba(255,230,140,.95)':'rgba(160,210,255,.95)';
   ctx.lineWidth=3; ctx.arc(rx,ry,RING_BASE,0,6.28); ctx.stroke();
   ctx.beginPath(); ctx.setLineDash([4,4]); ctx.strokeStyle=isPlayer?'rgba(255,255,170,.95)':'rgba(180,230,255,.9)';
@@ -253,20 +209,20 @@ function drawBall(x,y){
 /* ====== Start / Over ====== */
 function startGame(){
   playing=true; score=0; combo=0; level=1; dur=START_DUR;
-  SC.textContent='Score 0'; CO.textContent='Combo 0'; BE.textContent=`Best ${best} / Lv.${level}`;
+  SC.textContent='Score 0'; CO.textContent='Combo 0'; BE.textContent=`Best ${best|0} / Lv.${level}`;
   S.style.display='none'; O.style.display='none';
   const net=H*NET_Y_FIXED;
-  pos.x=W*0.5; pos.y=net-100;  // 初期位置
+  pos.x=W*0.5; pos.y=net-100;
   startLegToPlayer();
 }
 function gameOver(){
   playing=false;
-  FIN.textContent=`Score ${score} / Best ${Math.max(best,score)} / Lv.${level}`;
-  if(score>best){ best=score; localStorage.setItem('PT_best',best); }
+  const newBest = Math.max(best|0, score|0);
+  FIN.textContent=`Score ${score|0} / Best ${newBest} / Lv.${level}`;
+  if(newBest !== (best|0)){ best=newBest; localStorage.setItem('PT2_best',best); }
   BE.textContent=`Best ${best} / Lv.${level}`;
   O.style.display='flex';
 }
-
 GO.onclick=startGame;
 RY.onclick=()=>{ S.style.display='flex'; O.style.display='none'; };
 
