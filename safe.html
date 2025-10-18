@@ -1,51 +1,106 @@
 <!doctype html>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>PingTap Safe Diag</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>PingTap Safe Diag v2</title>
 <style>
-  html,body{margin:0;height:100%;background:#0b1224}
-  #hud{position:fixed;inset:env(safe-area-inset-top) 0 auto 0;display:flex;gap:8px;
-       padding:8px 12px;font:700 16px system-ui;color:#fff}
-  .pill{background:#0b1224cc;border-radius:14px;padding:8px 12px}
+  :root{--bg:#0b1224;--pill:#101a33;--txt:#e8eefc}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font:700 16px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto}
+  #hud{position:fixed;inset:env(safe-area-inset-top) 0 auto 0;display:flex;gap:12px;justify-content:flex-start;padding:8px 12px;pointer-events:none}
+  .pill{background:var(--pill);border-radius:14px;padding:8px 12px}
   canvas{display:block;width:100vw;height:100vh;touch-action:manipulation}
+  #tip{position:fixed;inset:auto 0 env(safe-area-inset-bottom) 0;text-align:center;
+       opacity:.5;font-weight:600;padding:8px 0}
 </style>
 <div id="hud">
   <div class="pill" id="sc">Score 0</div>
   <div class="pill" id="st">Tap anywhere to start</div>
 </div>
 <canvas id="cv"></canvas>
+<div id="tip">診断リング：外円が内円に重なった瞬間にタップ</div>
 <script>
-const cv=document.getElementById('cv'), g=cv.getContext('2d');
-let DPR=1,W=0,H=0; function fit(){DPR=devicePixelRatio||1; W=innerWidth*DPR; H=innerHeight*DPR; cv.width=W; cv.height=H}
-addEventListener('resize',()=>{fit();},{passive:true}); fit();
+(() => {
+  const cv = document.getElementById('cv');
+  const g  = cv.getContext('2d', {alpha:false});
+  let DPR=1, W=0, H=0;
+  function fit(){
+    DPR = window.devicePixelRatio || 1;
+    W = innerWidth; H = innerHeight;
+    cv.width  = Math.round(W*DPR);
+    cv.height = Math.round(H*DPR);
+    cv.style.width = W+'px'; cv.style.height = H+'px';
+    g.setTransform(DPR,0,0,DPR,0,0);
+  }
+  addEventListener('resize', fit, {passive:true}); fit();
 
-let running=false, t0=0, dur=900, tol=0.12, ringT=0, score=0;
-let cx = 0.5, cy = 0.56; // 画面比（ここを上げ下げすると位置が変わる）
+  // ---------- 診断パラメータ ----------
+  const DUR = 900;          // 外リングが縮み切る時間(ms)
+  const TOL = 0.12;         // 許容誤差（±12%）
+  const INNER = 26;         // 内円半径(px)
+  const OUTER0 = 92;        // 外円初期半径(px)
+  const Y = () => H * 0.56; // 位置（ネット少し上相当）
+  const X = () => W * 0.5;
 
-function hud(){document.getElementById('sc').textContent='Score '+score}
-function start(){running=true; ringT=performance.now(); loop(ringT)}
-function tap(){
-  if(!running){start();return}
-  const err=Math.abs((performance.now()-ringT)/dur-1);
-  if(err<=tol){ score+=100; ringT=performance.now(); } else { score=0; }
-  hud();
-}
-function loop(now){
-  if(!running) return; requestAnimationFrame(loop);
-  g.clearRect(0,0,W,H);
-  const x=W*cx, y=H*cy, p=Math.min(1,(now-ringT)/dur);
-  const rOut=76+(30-76)*(1-Math.pow(1-p,3));
-  // outer ring
-  g.save(); g.translate(x,y); g.strokeStyle='rgba(255,210,74,.95)';
-  g.lineWidth=4*DPR; g.setLineDash([10,8]); g.beginPath(); g.arc(0,0,rOut,0,Math.PI*2); g.stroke();
-  // base ring
-  g.setLineDash([]); g.lineWidth=6*DPR; g.beginPath(); g.arc(0,0,30,0,Math.PI*2); g.stroke(); g.restore();
-  // ball
-  g.fillStyle='#ffeaa6'; g.beginPath(); g.arc(x,y-60*DPR*(1-p),8*DPR,0,Math.PI*2); g.fill();
-}
-['pointerdown','touchstart','mousedown','click'].forEach(t=>{
-  addEventListener(t,tap,{passive:true});
-  cv.addEventListener(t,tap,{passive:true});
-});
-hud();
+  // ---------- 状態 ----------
+  let running=false, started=false;
+  let ringS = 0;    // アニメ開始時刻
+  let score = 0;
+
+  const $sc = document.getElementById('sc');
+  const $st = document.getElementById('st');
+  function hud(msg){
+    $sc.textContent = `Score ${score}`;
+    if (msg!==undefined) $st.textContent = msg;
+  }
+
+  // ---------- 描画 ----------
+  function draw(now){
+    g.clearRect(0,0,W,H);
+
+    // ハートビート(左上に点滅) … RAFが動いているか確認用
+    g.fillStyle = 'rgba(255,255,255,.25)';
+    g.beginPath(); g.arc(14,14, 3+3*Math.sin(now/250), 0, Math.PI*2); g.fill();
+
+    // リング
+    const cx = X(), cy = Y();
+    const t = (now - ringS)/DUR;         // 0→1 で縮む
+    const k = 1 - Math.max(0, Math.min(1, t));
+    const outer = INNER + (OUTER0-INNER) * k;
+
+    g.lineWidth = 6; g.strokeStyle='rgba(255,210,64,.95)';
+    g.setLineDash([8,10]); g.beginPath(); g.arc(cx,cy,outer,0,Math.PI*2); g.stroke();
+    g.setLineDash([]);
+    g.lineWidth = 4; g.beginPath(); g.arc(cx,cy,INNER,0,Math.PI*2); g.stroke();
+
+    // 玉ドット
+    g.fillStyle='rgba(255,220,96,.9)';
+    g.beginPath(); g.arc(cx,cy,6,0,Math.PI*2); g.fill();
+  }
+
+  function loop(now){
+    if(!running) return;
+    requestAnimationFrame(loop);
+    draw(now || performance.now());
+  }
+
+  // ---------- 入力 ----------
+  function handleTap(e){
+    e.preventDefault();
+    if(!started){
+      started=true; running=true; ringS=performance.now(); hud('');
+      requestAnimationFrame(loop);
+      return;
+    }
+    const now = performance.now();
+    const phase = (now - ringS)/DUR;     // 0で開始、1で一致
+    const err = Math.abs(1 - phase);
+    if (err <= TOL){ score += 100; hud('Good!'); }
+    else           { score  = 0;   hud('Miss!'); }
+    ringS = now;   // 次のサイクルへ
+  }
+
+  ['pointerdown','touchstart','mousedown','click']
+    .forEach(ev => window.addEventListener(ev, handleTap, {passive:false}));
+
+  hud('Tap anywhere to start');
+})();
 </script>
