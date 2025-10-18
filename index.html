@@ -5,26 +5,32 @@
   :root{
     --hud-bg: rgba(20,20,30,.55);
     --accent:#ffd34d;
-    --ringP: rgba(255,235,150,.95);
-    --ringO: rgba(170,220,255,.92);
+    --ringP: rgba(255,235,150,.95); /* player */
+    --ringO: rgba(170,220,255,.92); /* opponent */
   }
   html,body{margin:0;height:100%;background:#091427;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
   #cv{position:fixed;inset:0;touch-action:manipulation}
+
   .hud{
     position:fixed;left:10px;right:10px;
-    top:calc(10px + env(safe-area-inset-top,0px));
+    top:calc(8px + env(safe-area-inset-top,0px));
     display:flex;gap:12px;z-index:3;pointer-events:none
   }
   .pill{
-    min-width:140px;background:var(--hud-bg);backdrop-filter: blur(2px);
-    border-radius:18px;padding:10px 14px;font-weight:800;letter-spacing:.2px
+    min-width:120px;background:var(--hud-bg);backdrop-filter: blur(2px);
+    border-radius:18px;padding:10px 14px;font-weight:800;letter-spacing:.2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis
   }
   .pill b{display:block;font-size:16px}
   .pill small{opacity:.9}
+
   .card{
     position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    background:rgba(0,0,0,.55);text-align:center;padding:18px;z-index:4
+    background:rgba(0,0,0,.55);text-align:center;padding:18px;z-index:4;
+    pointer-events:none; /* ← 背景タップをCanvasへ通す */
   }
+  .card .btn{ pointer-events:auto; } /* ボタンは押せる */
+
   .btn{
     display:inline-grid;place-items:center;min-width:46px;height:42px;border-radius:18px;
     padding:0 16px;background:var(--accent);color:#222;font-weight:800;
@@ -66,7 +72,7 @@ const SPEEDUP_RATE  = 0.93;
 const MIN_DUR = 0.46;     // 下限
 const RING_BASE= 28, RING_SHRINK= 36;   // 円
 const TOL_DIST_GOOD = 36,  TOL_DIST_GREAT = 22,  TOL_DIST_PERF= 12;
-const TOL_TIME_GOOD = 12,  TOL_TIME_GREAT = 7,   TOL_TIME_PERF= 3; // 収縮円とベースの差(px)
+const TOL_TIME_GOOD = 12,  TOL_TIME_GREAT = 7,   TOL_TIME_PERF= 3; // 収縮円とベース差(px)
 const SCORE_BASE=100, MULT_GOOD=1.00, MULT_GREAT=1.30, MULT_PERF=1.60;
 const COMBO_BONUS=0.15;   // 加点のコンボ倍率
 const DEMON_AT=90, HARD_END=120; // 秒
@@ -80,6 +86,11 @@ const sc = document.getElementById('sc'), scs = document.getElementById('scsub')
 const cm = document.getElementById('cm'), cms = document.getElementById('cmsub');
 const bs = document.getElementById('bs'), lvl = document.getElementById('lvl');
 
+/* CSS変数 → Canvas色として解決 */
+const CS = getComputedStyle(document.documentElement);
+const COL_P = (CS.getPropertyValue('--ringP')||'rgba(255,235,150,.95)').trim();
+const COL_O = (CS.getPropertyValue('--ringO')||'rgba(170,220,255,.92)').trim();
+
 let W=0,H=0,dpr=1;
 function fit(){
   dpr=Math.max(1,Math.min(3,devicePixelRatio||1)); W=innerWidth; H=innerHeight;
@@ -88,7 +99,7 @@ function fit(){
 }
 addEventListener('resize',fit,{passive:true}); fit();
 
-/* ========= 背景画像（既定名） ========= */
+/* ========= 背景（既定PNG、失敗でフォールバック） ========= */
 let bg=null;
 (function(){
   const img=new Image(); img.crossOrigin='anonymous';
@@ -96,7 +107,7 @@ let bg=null;
   img.src='./2FE72969-9374-4D85-ADBC-28EADEE8437A.png';
 })();
 
-/* ========= 音（SEのみ） ========= */
+/* ========= SEだけ（BGMは無し） ========= */
 let AC=null, master=null;
 function ac(){ if(AC) return; AC=new (window.AudioContext||window.webkitAudioContext)(); master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination); }
 function sePock(){
@@ -108,14 +119,13 @@ function sePock(){
   g1.gain.exponentialRampToValueAtTime(0.35,AC.currentTime+0.005);
   g1.gain.exponentialRampToValueAtTime(0.0001,AC.currentTime+0.12);
   o.connect(g1).connect(master); o.start(); o.stop(AC.currentTime+0.14);
-  // 短いノイズ
   const buf = AC.createBuffer(1, AC.sampleRate*0.07, AC.sampleRate);
   const ch = buf.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*Math.pow(1-i/ch.length,2);
   const n = AC.createBufferSource(); n.buffer=buf; const g2=AC.createGain(); g2.gain.value=0.12;
   n.connect(g2).connect(master); n.start(); n.stop(AC.currentTime+0.07);
 }
 
-/* ========= 状態 ========= */
+/* ========= 位置生成 ========= */
 const R = Math.random;
 function rnd(a,b){return a+R()*(b-a)}
 function oppSpot(){ // 相手側
@@ -129,6 +139,7 @@ function plySpot(){ // 自分側
   return {x,y};
 }
 
+/* ========= 状態 ========= */
 let playing=false, t0=0, dur=START_DUR, phase='toPlayer';
 let from={x:0,y:0}, to={x:0,y:0};   // ボールの移動
 let playerAim={x:0,y:0}, oppAim={x:0,y:0};
@@ -160,8 +171,10 @@ function gameOver(){
 }
 
 /* ========= 入力 ========= */
+/* どこをタップしても開始。開始後は自分ターンのみ判定。 */
 addEventListener('pointerdown', (e)=>{
-  if(!playing) return;
+  if(!playing){ startGame(); return; }
+
   if(phase!=='toPlayer') return; // 自分の番のみ判定
   const rect=cv.getBoundingClientRect();
   const x=(e.clientX??e.touches?.[0]?.clientX)-rect.left;
@@ -175,6 +188,7 @@ addEventListener('pointerdown', (e)=>{
   if(dt<=TOL_TIME_PERF && d<=TOL_DIST_PERF){ mult=MULT_PERF; tag='Perfect!'; }
   else if(dt<=TOL_TIME_GREAT && d<=TOL_DIST_GREAT){ mult=MULT_GREAT; tag='Great!'; }
   else if(dt<=TOL_TIME_GOOD && d<=TOL_DIST_GOOD){ mult=MULT_GOOD; tag='Good!'; }
+
   if(mult>0){
     sePock();
     const add = Math.round(SCORE_BASE * mult * (1 + combo*COMBO_BONUS));
@@ -202,7 +216,7 @@ addEventListener('pointerdown', (e)=>{
 function ringRadiusNow(){
   const p = Math.min(1, Math.max(0, (performance.now()-t0)/dur));
   // 自分の番の“残り”に応じて収縮
-  const left = (phase==='toPlayer') ? (1-p) : 1; // 相手ターン中は固定サイズのまま
+  const left = (phase==='toPlayer') ? (1-p) : 1; // 相手ターン中は固定サイズ
   return RING_BASE + RING_SHRINK*left;
 }
 
@@ -227,7 +241,6 @@ function loop(){
     const bx = from.x + (to.x-from.x)*p;
     const by = from.y + (to.y-from.y)*p;
 
-    // 時間切れ：自分の番で取り損ねたら終了、相手番は自分番へ
     if(p>=1){
       if(phase==='toPlayer'){ gameOver(); }
       else { phase='toPlayer'; t0=now; from=oppAim; to=playerAim=plySpot(); }
@@ -242,16 +255,14 @@ function loop(){
 
     // ボール
     g.fillStyle='#fff'; g.beginPath(); g.arc(bx,by,8,0,Math.PI*2); g.fill();
-    g.fillStyle='rgba(0,0,0,.2)'; g.beginPath(); g.arc(bx+2,by+2,8,0,Math.PI*2); g.strokeStyle='transparent'; // 影っぽく
   }
 
-  // 鬼モード表示（120sで強め）
+  // 鬼モード表現（バー）
   if(playing){
     const elapsed=(now-startedAt)/1000;
     if(elapsed>=DEMON_AT){
-      g.fillStyle='rgba(255,80,80,.18)';
-      g.fillRect(0,0,W,6);
-      if(elapsed>=HARD_END) { /* 事実上ほぼ不可能になるだけ。強制終了はしない */ }
+      g.fillStyle='rgba(255,80,80,.18)'; g.fillRect(0,0,W,6);
+      if(elapsed>=HARD_END){ /* ほぼ不可能域。強制終了はしない */ }
     }
   }
 
@@ -263,11 +274,11 @@ requestAnimationFrame(loop);
 function drawGuide(x,y,rr,isPlayer,label){
   // ベース円
   g.beginPath(); g.lineWidth=3; g.setLineDash([]);
-  g.strokeStyle = isPlayer? 'var(--ringP)':'var(--ringO)';
+  g.strokeStyle = isPlayer? COL_P : COL_O;
   g.arc(x,y,RING_BASE,0,Math.PI*2); g.stroke();
   // 収縮円（自分ターンのみダッシュ）
   g.beginPath(); g.lineWidth=3; g.setLineDash(isPlayer?[6,6]:[]);
-  g.strokeStyle = isPlayer? 'var(--ringP)':'var(--ringO)';
+  g.strokeStyle = isPlayer? COL_P : COL_O;
   g.arc(x,y,rr,0,Math.PI*2); g.stroke(); g.setLineDash([]);
   // ラベル
   g.fillStyle=isPlayer?'#ffe38a':'#aee1ff';
@@ -277,7 +288,7 @@ function drawGuide(x,y,rr,isPlayer,label){
 
 /* ========= ボタン ========= */
 go.onclick=startGame;
-retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; };
+retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; playing=false; };
 
 })();
 </script>
