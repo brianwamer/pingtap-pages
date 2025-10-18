@@ -11,17 +11,11 @@
   html,body{margin:0;height:100%;background:#091427;color:#fff;
     font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
   #cv{position:fixed;inset:0;touch-action:manipulation}
-
-  .hud{
-    position:fixed;left:10px;right:10px;
-    top:calc(10px + env(safe-area-inset-top,0px));
-    display:flex;gap:12px;z-index:3;pointer-events:none
-  }
+  .hud{position:fixed;left:10px;right:10px;top:calc(10px + env(safe-area-inset-top,0px));
+       display:flex;gap:12px;z-index:3;pointer-events:none}
   .pill{min-width:120px;background:var(--hud-bg);backdrop-filter: blur(2px);
         border-radius:18px;padding:10px 14px;font-weight:800;letter-spacing:.2px}
-  .pill b{display:block;font-size:16px}
-  .pill small{opacity:.9}
-
+  .pill b{display:block;font-size:16px}.pill small{opacity:.9}
   .card{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
         background:rgba(0,0,0,.55);text-align:center;padding:18px;z-index:4}
   .btn{display:inline-grid;place-items:center;min-width:46px;height:42px;border-radius:18px;
@@ -51,27 +45,31 @@
 
 <script>
 (()=>{
-/* ===== 調整用パラメータ ===== */
+// ===== 調整用パラメータ =====
 const BG_URL     = './2FE72969-9374-4D85-ADBC-28EADEE8437A.png';
-const NET_Y      = 0.595;  // ネット高さ（画面比）
-const Y_PLAYER   = 0.115;  // プレイヤー打点（ネットからの距離）
-const Y_OPP      = 0.085;  // 相手打点
-const X_MARGIN   = 0.16;   // 左右安全マージン
-const Y_JIT      = 0.018;  // 縦揺らぎ
-const START_DUR  = 1.00;   // 1ターンの時間（秒）
-const SPEEDUP_EVERY = 2;   // 何回成功で加速
+const NET_Y      = 0.595;
+const Y_PLAYER   = 0.115;
+const Y_OPP      = 0.085;
+const X_MARGIN   = 0.16;
+const Y_JIT      = 0.018;
+const START_DUR  = 1.00;
+const SPEEDUP_EVERY = 2;
 const SPEEDUP_RATE  = 0.93;
-const MIN_DUR    = 0.46;   // 下限（秒）
+const MIN_DUR    = 0.46;
 
 // 判定とスコア
 const RING_BASE=28, RING_SHRINK=36;
 const TOL_DIST_GOOD = 36, TOL_DIST_GREAT = 22, TOL_DIST_PERF = 12;
-const TOL_TIME_GOOD = 12, TOL_TIME_GREAT = 7,  TOL_TIME_PERF  = 3; // 収縮円との差(px)
+const TOL_TIME_GOOD = 12, TOL_TIME_GREAT = 7,  TOL_TIME_PERF  = 3;
 const SCORE_BASE=100, MULT_GOOD=1.00, MULT_GREAT=1.30, MULT_PERF=1.60;
 const COMBO_BONUS=0.15;
-const DEMON_AT=90, HARD_END=120; // 秒
+const DEMON_AT=90, HARD_END=120;
 
-/* ===== DOM/Canvas ===== */
+// 軌道（ベジェ）パラメータ
+const ARC_H   = 0.12;     // ネット上のアーチ高さ（画面比）※大きいほど山なり
+const CURVE_X = 0.10;     // 横カーブの強さ（テーブル幅比の最大）
+
+// ===== DOM/Canvas =====
 const cv=document.getElementById('cv'), g=cv.getContext('2d');
 const S=document.getElementById('start'), O=document.getElementById('over');
 const go=document.getElementById('go'), retry=document.getElementById('retry');
@@ -89,14 +87,14 @@ function fit(){
 }
 addEventListener('resize',fit,{passive:true}); fit();
 
-/* ===== 背景画像（失敗時は自前描画） ===== */
+// ===== 背景（失敗時は自前描画） =====
 let bg=null;
 (()=>{ const img=new Image(); img.crossOrigin='anonymous';
   img.onload=()=>bg=img; img.onerror=()=>bg=null; img.src=BG_URL; })();
 
-/* ===== 音（SEだけ） ===== */
+// ===== 音（SEのみ） & 時間ユーティリティ =====
 let AC=null, master=null;
-const sec = ()=>performance.now()/1000;        // ここが “秒” 統一の肝
+const sec = ()=>performance.now()/1000;
 function ac(){ if(AC) return; AC=new (window.AudioContext||window.webkitAudioContext)();
   master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination); }
 function sePock(){
@@ -108,39 +106,54 @@ function sePock(){
   g1.gain.exponentialRampToValueAtTime(0.35,AC.currentTime+0.005);
   g1.gain.exponentialRampToValueAtTime(0.0001,AC.currentTime+0.12);
   o.connect(g1).connect(master); o.start(); o.stop(AC.currentTime+0.14);
-
   const buf=AC.createBuffer(1,AC.sampleRate*0.07,AC.sampleRate);
-  const ch=buf.getChannelData(0);
-  for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*Math.pow(1-i/ch.length,2);
+  const ch=buf.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*Math.pow(1-i/ch.length,2);
   const n=AC.createBufferSource(); n.buffer=buf; const g2=AC.createGain(); g2.gain.value=0.12;
   n.connect(g2).connect(master); n.start(); n.stop(AC.currentTime+0.07);
 }
 
-/* ===== 乱数と打点生成 ===== */
-const R=Math.random;
-const rnd=(a,b)=>a+R()*(b-a);
+// ===== 乱数と打点生成 =====
+const R=Math.random, rnd=(a,b)=>a+R()*(b-a);
 const oppSpot =()=>({ x:rnd(W*X_MARGIN,W*(1-X_MARGIN)),
   y:H*NET_Y - H*Y_OPP + rnd(-H*Y_JIT,H*Y_JIT) });
 const plySpot =()=>({ x:rnd(W*X_MARGIN,W*(1-X_MARGIN)),
   y:H*NET_Y + H*Y_PLAYER + rnd(-H*Y_JIT,H*Y_JIT) });
 
-/* ===== ゲーム状態 ===== */
+// ===== ゲーム状態 =====
 let playing=false, t0=0, dur=START_DUR, phase='toPlayer';
-let from={x:0,y:0}, to={x:0,y:0}, playerAim={x:0,y:0}, oppAim={x:0,y:0};
+let from={x:0,y:0}, to={x:0,y:0};
+let ctrl={x:0,y:0};                 // ★ ベジェ制御点（アーチ＆横カーブ）
+let playerAim={x:0,y:0}, oppAim={x:0,y:0};
 let score=0, combo=0, best=Number(localStorage.getItem('PT_best')||0), level=1, steps=0, startedAt=0;
 let judgeText='', judgeUntil=0;
 bs.textContent='Best '+best.toFixed(0);
 const showJudge = txt => { judgeText=txt; judgeUntil = sec()+0.85; };
 
-/* ===== リセット/開始/終了 ===== */
+// ベジェ評価
+const bez = (p,a,c,b)=>{ const u=1-p; return u*u*a + 2*u*p*c + p*p*b; };
+
+// レグ（1往復の片道）セット
+function setLeg(a,b){
+  from=a; to=b; t0=sec();
+  // ネット上を山なりに：高さはランダム、横カーブも少し
+  const midx=(a.x+b.x)/2;
+  const curve = (b.x-a.x)*rnd(-CURVE_X, CURVE_X);
+  ctrl = {
+    x: midx + curve,
+    y: H*NET_Y - H*ARC_H * rnd(0.85,1.15)
+  };
+}
+
+// ===== リセット/開始/終了 =====
 function resetState(){
   score=0; combo=0; level=1; steps=0; dur=START_DUR;
   sc.textContent='Score 0'; scs.innerHTML='&nbsp;';
   cm.textContent='Combo 0'; cms.innerHTML='&nbsp;';
   lvl.textContent='/ Lv.1';
   playerAim=plySpot(); oppAim=oppSpot();
-  from=oppAim; to=playerAim; phase='toPlayer';
-  t0=sec(); judgeText=''; judgeUntil=0; startedAt=sec();
+  phase='toPlayer'; startedAt=sec();
+  setLeg(oppAim, playerAim);        // 相手→自分でスタート
+  judgeText=''; judgeUntil=0;
 }
 function startGame(){ ac(); resetState(); S.style.display='none'; O.style.display='none'; playing=true; }
 function gameOver(){
@@ -151,16 +164,16 @@ function gameOver(){
   O.style.display='flex';
 }
 
-/* ===== 入力（自分の番だけ判定） ===== */
+// ===== 入力（自分の番だけ判定） =====
 addEventListener('pointerdown', (e)=>{
   if(!playing || phase!=='toPlayer') return;
   const r=cv.getBoundingClientRect();
   const x=(e.clientX??e.touches?.[0]?.clientX)-r.left;
   const y=(e.clientY??e.touches?.[0]?.clientY)-r.top;
 
-  const rr = ringRadiusNow();              // 収縮円の半径
-  const dt = Math.abs(rr - RING_BASE);     // “重なり” 誤差（px）
-  const d  = Math.hypot(x-playerAim.x,y-playerAim.y);  // 的中心から
+  const rr = ringRadiusNow();
+  const dt = Math.abs(rr - RING_BASE);
+  const d  = Math.hypot(x-playerAim.x,y-playerAim.y);
 
   let mult=0, tag='';
   if(dt<=TOL_TIME_PERF && d<=TOL_DIST_PERF){ mult=MULT_PERF; tag='Perfect!'; }
@@ -179,23 +192,25 @@ addEventListener('pointerdown', (e)=>{
       const rate = (elapsed>=DEMON_AT)? 0.90 : SPEEDUP_RATE;
       dur = Math.max(MIN_DUR, dur*rate); level++; lvl.textContent='/ Lv.'+level;
     }
-    phase='toOpponent'; t0=sec(); from=playerAim; to=oppAim=oppSpot();
+    phase='toOpponent';
+    oppAim = oppSpot();
+    setLeg(playerAim, oppAim);       // 自分→相手 のベジェに更新
   }else{
     cms.textContent='Miss!'; showJudge('Miss!'); gameOver();
   }
 },{passive:true});
 
-/* ===== 時間と半径 ===== */
+// ===== 時間と半径 =====
 function ringRadiusNow(){
   const p = Math.min(1, Math.max(0, (sec()-t0)/dur));
-  const left = (phase==='toPlayer') ? (1-p) : 1; // 自分ターンのみ縮む
+  const left = (phase==='toPlayer') ? (1-p) : 1;
   return RING_BASE + RING_SHRINK*left;
 }
 
-/* ===== ループ ===== */
+// ===== ループ =====
 let last = sec();
 function loop(){
-  const now = sec(), dt = Math.min(.033, now-last); last = now;
+  const now = sec(); last = now;
 
   // 背景
   if(bg){
@@ -210,31 +225,45 @@ function loop(){
 
   if(playing){
     const p = Math.min(1,(now-t0)/dur);
-    const bx = from.x + (to.x-from.x)*p;
-    const by = from.y + (to.y-from.y)*p;
 
+    // ベジェで位置
+    const bx = bez(p, from.x, ctrl.x, to.x);
+    const by = bez(p, from.y, ctrl.y, to.y);
+
+    // 時間切れ
     if(p>=1){
       if(phase==='toPlayer'){ gameOver(); }
-      else { phase='toPlayer'; t0=now; from=oppAim; to=playerAim=plySpot(); }
+      else { phase='toPlayer'; playerAim = plySpot(); setLeg(oppAim, playerAim); }
     }
 
-    // ガイドとボール
+    // ガイド
     drawGuide(oppAim.x,oppAim.y,RING_BASE,false,'HIT!');
-    const rr=ringRadiusNow();
+    const rr = ringRadiusNow();
     drawGuide(playerAim.x,playerAim.y,rr,true,(judgeUntil>now)?judgeText:'TAP!');
-    g.fillStyle='#fff'; g.beginPath(); g.arc(bx,by,8,0,Math.PI*2); g.fill();
+
+    // 高さ表現：山の中央が高い
+    const hNorm = 1 - 4*(p-0.5)*(p-0.5);          // 0〜1
+    const rad   = 8 * (1 + 0.08*hNorm);           // 少し大きく
+    // 影
+    g.globalAlpha = 0.25*(1-hNorm);
+    g.fillStyle='#000';
+    g.beginPath(); g.ellipse(bx+2, by+6, rad*0.9, rad*0.55, 0, 0, Math.PI*2); g.fill();
+    g.globalAlpha = 1;
+
+    // ボール本体
+    g.fillStyle='#fff'; g.beginPath(); g.arc(bx,by,rad,0,Math.PI*2); g.fill();
   }
 
-  // 鬼モードの赤帯(視覚的プレッシャー)
-  if(playing){
-    const elapsed = now - startedAt;
-    if(elapsed>=DEMON_AT){ g.fillStyle='rgba(255,80,80,.18)'; g.fillRect(0,0,W,6); }
+  // 鬼モード帯
+  if(playing && (now - startedAt)>=DEMON_AT){
+    g.fillStyle='rgba(255,80,80,.18)'; g.fillRect(0,0,W,6);
   }
+
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-/* ===== 描画ユーティリティ ===== */
+// ===== 描画ユーティリティ =====
 function drawGuide(x,y,rr,isPlayer,label){
   g.beginPath(); g.lineWidth=3; g.setLineDash([]);
   g.strokeStyle = isPlayer? 'var(--ringP)':'var(--ringO)';
@@ -249,7 +278,7 @@ function drawGuide(x,y,rr,isPlayer,label){
   g.fillText(label, x, y-RING_BASE-10);
 }
 
-/* ===== ボタン ===== */
+// ===== ボタン =====
 go.onclick=startGame;
 retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; };
 })();
