@@ -3,220 +3,322 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PingTap — Retro Rally</title>
 <style>
-  :root{ --cap:rgba(0,0,0,.35); --blur:saturate(120%) blur(6px); --accent:#ffd14a}
-  html,body{height:100%;margin:0;background:#0b1224;color:#fff;font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","Hiragino Sans",Meiryo,sans-serif}
-  .bg{position:fixed;inset:0;background:url("./2FE72969-9374-4D85-ADBC-28EADEE8437A.png?v=4") center/cover no-repeat}
-  .shade{position:fixed;inset:0;background:radial-gradient(110% 110% at 50% 20%,transparent 60%,rgba(0,0,0,.45)) ;pointer-events:none}
-  canvas{position:fixed;inset:0;touch-action:none}
-  .hud{position:fixed;left:calc(env(safe-area-inset-left,0px)+8px);right:calc(env(safe-area-inset-right,0px)+8px);top:calc(env(safe-area-inset-top,0px)+6px);display:grid;grid-template-columns:auto auto 1fr auto;gap:10px;z-index:10;pointer-events:none}
-  .cap{background:var(--cap);backdrop-filter:var(--blur);padding:8px 14px;border-radius:20px;font-weight:700;line-height:1;pointer-events:auto}
-  .btn{cursor:pointer;border:0;background:var(--cap);backdrop-filter:var(--blur);color:#fff;border-radius:20px;padding:8px 14px}
-  .center{position:fixed;inset:0;display:grid;place-items:center;z-index:9;pointer-events:none}
-  .center > div{pointer-events:auto;text-align:center}
-  .big{font-size:28px;font-weight:800;text-shadow:0 2px 0 rgba(0,0,0,.5)}
-  .main{background:var(--accent);color:#221;padding:12px 22px;border-radius:14px;margin-top:12px;border:0}
-  .hint{position:fixed;left:-9999px;top:-9999px;transform:translate(-50%,-50%);text-align:center;color:#ffe07a;font-weight:800;letter-spacing:.03em;z-index:8;pointer-events:none}
-  .ring{width:1px;height:1px;border-radius:999px;border:3px dashed #ffd96b;box-shadow:0 0 0 3px rgba(255,217,107,.25) inset,0 0 18px rgba(255,217,107,.25)}
-  .dot{width:10px;height:10px;background:#ffe07a;border-radius:999px;margin:10px auto 0}
-  .overlay{position:fixed;inset:0;display:none;place-items:center;z-index:20}
-  .overlay.show{display:grid}
-  .panel{background:rgba(10,12,20,.9);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px;width:min(92vw,420px)}
-  .row{display:flex;gap:10px;flex-wrap:wrap}
-  .row .btn{background:#243048;border-radius:10px}
+  :root{
+    --hud:#0b1224dd; --ink:#fff; --accent:#ffd24a; --shadow:#0008;
+  }
+  html,body{margin:0;height:100%;background:#0b1224;color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,'Hiragino Kaku Gothic ProN','Noto Sans CJK JP',sans-serif;}
+  #wrap{position:fixed;inset:0;display:grid;grid-template-rows:auto 1fr; padding-top:env(safe-area-inset-top);}
+  canvas{width:100%;height:100%;touch-action:manipulation;display:block;background:#0b1224;}
+  /* HUD */
+  .hud{position:fixed;left:0;right:0;top:env(safe-area-inset-top);display:flex;gap:12px;justify-content:space-between;padding:8px 12px;pointer-events:none}
+  .pill{pointer-events:auto;background:var(--hud);border-radius:16px;padding:10px 16px;font-weight:700;backdrop-filter:blur(4px);min-width:120px}
+  .right{margin-left:auto}
+  .pauseBtn{width:44px;height:44px;border-radius:12px;background:var(--hud);display:grid;place-items:center;font-weight:900}
+  .pauseBtn::before{content:"Ⅱ";}
+  /* Start / Over / Pause overlay */
+  .overlay{position:fixed;inset:0;display:grid;place-items:center;background:linear-gradient(#0000,#0008 55%);}
+  .box{background:#1b233aee;border-radius:16px;padding:16px 18px;color:#fff;box-shadow:0 8px 24px var(--shadow);text-align:center;min-width:260px}
+  .btn{border:0;border-radius:14px;background:var(--accent);color:#222;font-weight:800;padding:12px 18px;font-size:18px}
+  .small{font-size:14px;background:#2a355b;color:#fff;margin-top:8px}
+  /* Tap target visuals */
+  .ringText{position:fixed;left:50%;transform:translateX(-50%);top:calc(var(--hit-y) - 36px);font-weight:900;letter-spacing:.06em;text-shadow:0 2px 6px #000c}
 </style>
 
-<div class="bg" id="bg"></div>
-<div class="shade"></div>
-<canvas id="cv"></canvas>
-
-<div class="hud">
-  <div id="score" class="cap">Score 0</div>
-  <div id="combo" class="cap">Combo 0</div>
-  <div></div>
-  <button id="pause" class="btn" aria-label="Pause">II</button>
+<div id="wrap">
+  <div class="hud">
+    <div class="pill" id="score">Score 0</div>
+    <div class="pill" id="combo">Combo 0</div>
+    <div class="pill right" id="best">Best 0 / Lv.1</div>
+    <div class="pauseBtn" id="pause"></div>
+  </div>
+  <canvas id="cv" width="750" height="1334"></canvas>
 </div>
 
-<div class="hint" id="hint">
-  <div id="hintText">TAP!</div>
-  <div id="ring" class="ring"></div>
-  <div class="dot"></div>
-</div>
-
-<div class="center" id="center">
-  <div>
-    <div id="centerText" class="big">PingTap — Retro Rally</div>
-    <button id="startBtn" class="main">スタート</button>
+<div class="overlay" id="startOv">
+  <div class="box">
+    <div style="font-size:28px;font-weight:900;margin:2px 0 10px">Score 0 / Lv.1</div>
+    <button class="btn" id="startBtn">スタート</button>
+    <div class="small">45〜90秒で難易度MAX。鬼は2分未満で終局。</div>
   </div>
 </div>
 
-<div class="overlay" id="menu">
-  <div class="panel">
-    <h3 style="margin:0 0 10px">Pause</h3>
-    <div class="row">
-      <button class="btn" id="resumeBtn">▶ 再開</button>
-      <button class="btn" id="restartBtn">↻ リスタート</button>
-      <button class="btn" id="bgmBtn">♪ BGM ON/OFF</button>
-    </div>
+<div class="overlay" id="overOv" style="display:none">
+  <div class="box">
+    <div id="overText" style="font-size:28px;font-weight:900;margin:2px 0 10px">Score 0 / Lv.1</div>
+    <button class="btn" id="retryBtn">もう一回</button>
   </div>
 </div>
+
+<div class="overlay" id="pauseOv" style="display:none">
+  <div class="box">
+    <div style="font-size:22px;font-weight:900;margin-bottom:8px">ポーズ</div>
+    <button class="btn" id="resumeBtn">つづける</button>
+    <button class="btn small" id="restartBtn">最初から</button>
+    <button class="btn small" id="bgmBtn">BGM：OFF</button>
+  </div>
+</div>
+
+<div class="ringText" id="judge" style="display:none">HIT!</div>
 
 <script>
-/* ========= 可変パラメータ ========= */
+/* ========= 基本設定（ここだけ触ればチューニング可能） ========= */
 const CFG = {
-  TARGET_Y_FRAC: 0.56,        // ← リング（自分側）少し上
-  ENEMY_Y_FRAC : 0.28,        // 相手側の高さ
-  PLAYER_X_RANGE: 0.34,       // 自分側の左右ランダム幅
-  ENEMY_X_RANGE : 0.42,       // 相手側の左右ランダム幅
-  RING_PX      : 58,          // 初期リング半径
-  DUR_MAX      : 1150,        // リング1周の最初の長さ(ms)
-  DUR_MIN      : 460,         // 加速後の下限(ms)
-  HITS_TO_MIN  : 60,          // この回数でDUR_MINに到達
-  POST_90_STEP : 0.92,        // 90秒以降の鬼加速(ヒット毎に掛ける)
-  ARC_FRAC     : 0.12,        // 放物線の高さ（画面高比）
-  // タイミング判定（時間窓／durに対する割合）
-  WIN_GOOD  : 0.18,
-  WIN_GREAT : 0.11,
-  WIN_PERF  : 0.065,
-  SFX       : 0.35
+  BG_URL: '2FE72969-9374-4D85-ADBC-28EADEE8437A.png',
+  HIT_Y_RATIO: 0.60,          // ヒット円の縦位置（高くした）
+  HIT_X_RATIO: 0.50,
+  RING_BASE: 32,              // 内側の半径
+  RING_START: 78,             // 外側の初期半径
+  RING_SHADOW: 8,
+  DURATION_MS_L1: 880,        // Lv1 到達時間（リング＝ボールの到達時間）
+  SPEED_GAIN_PER_LV: 0.94,    // 上の時間に掛ける（短いほど速い）
+  LV_UP_EVERY_HIT: 8,         // 何回成功ごとにLv+1
+  MAX_TIME_SEC: 90,           // ここまでで加速しきる
+  HELL_TIME_SEC: 120,         // 2分で終局域
+  TOL_L1: 0.15,               // 許容（±）：Lv1
+  TOL_MIN: 0.05,              // 許容の下限（鬼）
+  GOOD: 0.10, GREAT: 0.06, PERFECT: 0.035, // 表示の境界
+  NET_Y_RATIO: 0.53,          // ネットの高さ（描画用）
+  OPP_RANGE: [0.28, 0.72],    // 相手側の落下Xレンジ（割合）
 };
-/* ================================= */
+/* ============================================================= */
 
-const cv = document.getElementById('cv'), g = cv.getContext('2d');
-let DPR=1, W=0, H=0; const $=sel=>document.getElementById(sel);
-const scoreEl=$('score'), comboEl=$('combo'), pauseBtn=$('pause');
-const center=$('center'), centerText=$('centerText'), startBtn=$('startBtn');
-const menu=$('menu'), resumeBtn=$('resumeBtn'), restartBtn=$('restartBtn'), bgmBtn=$('bgmBtn');
-const hint=$('hint'), ringEl=$('ring'), hintText=$('hintText');
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W=cv.width, H=cv.height;
+let bgImg=null; loadBG();
 
-let state='idle', raf=0, last=0, elapsed=0;
-let score=0, combo=0, best=+(localStorage.getItem('pingtap_best')||0), level=1, hits=0, dur=CFG.DUR_MAX;
-let ring={x:0,y:0,t:0,r:CFG.RING_PX}, ball=null, travel=null, after90=false;
+const hudScore = document.getElementById('score');
+const hudCombo = document.getElementById('combo');
+const hudBest  = document.getElementById('best');
+const pauseBtn = document.getElementById('pause');
+const startOv  = document.getElementById('startOv');
+const overOv   = document.getElementById('overOv');
+const pauseOv  = document.getElementById('pauseOv');
+const overText = document.getElementById('overText');
+const startBtn = document.getElementById('startBtn');
+const retryBtn = document.getElementById('retryBtn');
+const resumeBtn= document.getElementById('resumeBtn');
+const restartBtn=document.getElementById('restartBtn');
+const bgmBtn   = document.getElementById('bgmBtn');
+const judgeLbl = document.getElementById('judge');
 
-function rs(){ DPR=Math.min(2,devicePixelRatio||1); W=cv.width=Math.floor(innerWidth*DPR); H=cv.height=Math.floor(innerHeight*DPR); cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px'; }
-addEventListener('resize', rs,{passive:true}); rs();
+let raf=0, t0=0, elapsed=0, running=false;
+let level=1, score=0, combo=0, best = +localStorage.pingtap_best||0;
+let ringStart=0, ringDur=CFG.DURATION_MS_L1, tol=CFG.TOL_L1;
+let flightStart=0, flightDur=ringDur;
+let hitX, hitY, ringR=CFG.RING_START, ball={x:0,y:0,active:false, dir:1}; // dir: 1=相手→自分, -1=自分→相手
+let timePlayedMs=0, hits=0, paused=false;
 
-/* ---------- 音（簡易SFC風） ---------- */
+updateHUD();
+
+/* ====== Audio（SFC風チップ感の簡易BGM＋SE） ====== */
 const AC = new (window.AudioContext||window.webkitAudioContext)();
-function sTap(kind='good'){ const t=AC.currentTime,v=AC.createGain(); v.gain.value=CFG.SFX; v.connect(AC.destination);
-  const o=AC.createOscillator(); o.type='square'; const f=kind==='perfect'?880:(kind==='great'?740:660);
-  o.frequency.setValueAtTime(f,t); o.frequency.exponentialRampToValueAtTime(f*0.7,t+0.06);
-  v.gain.exponentialRampToValueAtTime(0.0001,t+0.08); o.connect(v); o.start(); o.stop(t+0.09);
+let bgmOn=false, bgmNode=null;
+function sePing(freq=800){ const o=AC.createOscillator(), g=AC.createGain();
+  o.type='square'; o.frequency.value=freq; g.gain.value=0.12;
+  o.connect(g).connect(AC.destination); o.start(); g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime+0.08); o.stop(AC.currentTime+0.09);
 }
-function sMiss(){ const t=AC.currentTime,v=AC.createGain(); v.gain.value=CFG.SFX*0.9; v.connect(AC.destination);
-  const a=AC.createOscillator(),b=AC.createOscillator(); a.type=b.type='triangle'; a.frequency.value=240; b.frequency.value=180;
-  v.gain.exponentialRampToValueAtTime(0.0001,t+0.4); a.connect(v); b.connect(v); a.start(); b.start(); a.stop(t+0.41); b.stop(t+0.41);
+function startBGM(){
+  if(bgmNode){bgmNode.stop(); bgmNode.disconnect(); bgmNode=null;}
+  const o1=AC.createOscillator(), o2=AC.createOscillator(), g=AC.createGain();
+  o1.type='square'; o2.type='triangle'; g.gain.value=0.08;
+  o1.frequency.value=220; o2.frequency.value=330;
+  const lfo=AC.createOscillator(), lfg=AC.createGain(); lfo.frequency.value=5; lfg.gain.value=2;
+  lfo.connect(lfg).connect(o2.frequency);
+  o1.connect(g); o2.connect(g); g.connect(AC.destination);
+  o1.start(); o2.start(); lfo.start();
+  bgmNode={stop:()=>{o1.stop();o2.stop();lfo.stop();}, disconnect:()=>g.disconnect()};
 }
-let bgm=null; function startBGM(){ if(bgm) return; const m=AC.createGain(); m.gain.value=.18; m.connect(AC.destination);
-  function line(type,seq,tempo){ const g=AC.createGain(); g.gain.value=0.8; g.connect(m); const o=AC.createOscillator(); o.type=type; o.connect(g);
-    let t=AC.currentTime+.02, sp=60/tempo; for(let i=0;i<128;i++){ const n=seq[i%seq.length]; const f=440*Math.pow(2,(n-69)/12);
-      o.frequency.setValueAtTime(f,t); g.gain.setValueAtTime(.9,t); g.gain.exponentialRampToValueAtTime(.001,t+sp*.8); t+=sp; } o.start(); return {o,g}; }
-  const lead=line('square',[76,79,83,79,76,79,83,79],112), bass=line('triangle',[40,40,43,40,35,35,38,35],56);
-  bgm={m,lead,bass};
-}
-function stopBGM(){ if(!bgm) return; try{bgm.lead.o.stop(); bgm.bass.o.stop();}catch{} bgm.m.disconnect(); bgm=null; }
-
-/* ---------- ヘルパ ---------- */
-function placeRing(){ const cx=innerWidth*.5;
-  ring.x = cx + (Math.random()*2-1)*(innerWidth*CFG.PLAYER_X_RANGE*.5);
-  ring.y = innerHeight*CFG.TARGET_Y_FRAC; ring.t=0; ring.r=CFG.RING_PX; showHint(true);
-  ringEl.style.width=(ring.r*2)+'px'; ringEl.style.height=(ring.r*2)+'px';
-}
-function showHint(show){ if(!show){ hint.style.left='-9999px'; hint.style.top='-9999px'; return; } hint.style.left=ring.x+'px'; hint.style.top=ring.y+'px'; }
-function updateHUD(){ scoreEl.textContent=`Score ${score|0}`; comboEl.textContent=`Combo ${combo|0}`; }
-
-/* ---------- 返球スケジュール ---------- */
-function scheduleEnemy(){ // 自分→相手→自分 の往復
-  const sx=ring.x, sy=ring.y;
-  const ex = innerWidth*.5 + (Math.random()*2-1)*(innerWidth*CFG.ENEMY_X_RANGE*.5);
-  const ey = innerHeight*CFG.ENEMY_Y_FRAC;
-  const nx= ring.x, ny= ring.y;
-  const T1=Math.max(320, dur*0.58), T2=Math.max(320, dur*0.62);
-  travel={phase:0,sx,sy,ex,ey,nx,ny,t:0,T1,T2};
-  ball={x:sx,y:sy - innerHeight*0.22}; // 少し上から
+function setBGM(on){
+  bgmOn=on; bgmBtn.textContent='BGM：'+(bgmOn?'ON':'OFF');
+  if(bgmOn){ AC.resume(); startBGM(); } else { if(bgmNode){bgmNode.stop();bgmNode.disconnect();bgmNode=null;} }
 }
 
-function commit(grade){
-  // スコア
-  const base= grade==='perfect'?300 : grade==='great'?200 : 120;
-  combo++; const mult = 1 + Math.min(2, combo*0.04); score += Math.round(base*mult);
-  if(score>best){ best=score; localStorage.setItem('pingtap_best', best|0); }
-  hits++; const p=Math.min(1, hits/CFG.HITS_TO_MIN);
-  dur = CFG.DUR_MAX + (CFG.DUR_MIN-CFG.DUR_MAX)*p; // 緩やか加速
-  if(elapsed>90000){ dur = Math.max(260, dur*CFG.POST_90_STEP); after90=true; } // 90秒以降は鬼加速
-  level = 1 + Math.floor(hits/10);
-  updateHUD(); sTap(grade);
-  scheduleEnemy(); placeRing();
+/* ================= Game Core ================= */
+function resetState(){
+  cancelAnimationFrame(raf);
+  running=false; paused=false;
+  level=1; score=0; combo=0; hits=0; timePlayedMs=0;
+  ringDur=CFG.DURATION_MS_L1; tol=CFG.TOL_L1;
+  ball.active=false; ringStart=0; flightStart=0;
+  updateHUD();
+}
+
+function startGame(){
+  resetState();
+  startOv.style.display='none'; overOv.style.display='none'; pauseOv.style.display='none';
+  AC.resume();
+  running=true; t0=performance.now(); spawnIncoming(); loop(t0);
+}
+
+function gameOver(){
+  running=false; cancelAnimationFrame(raf);
+  best=Math.max(best,score); localStorage.pingtap_best=best;
+  overText.textContent=`Score ${Math.round(score)} / Lv.${level}`;
+  overOv.style.display='grid';
+  updateHUD();
+}
+
+function spawnIncoming(){
+  const x0 = W*randRange(CFG.OPP_RANGE[0],CFG.OPP_RANGE[1]);
+  const y0 = H*0.35;                  // 奥のコート上
+  hitX = W*CFG.HIT_X_RATIO;
+  hitY = H*CFG.HIT_Y_RATIO;
+  document.documentElement.style.setProperty('--hit-y', hitY+'px');
+  // 同期のため：リングとボールは同じ時間で到達
+  flightDur = ringDur;
+  flightStart = performance.now();
+  ball.curve = makeBezier({x:x0,y:y0},{x:W*0.5,y:H*CFG.NET_Y_RATIO*0.98},{x:hitX,y:hitY});
+  ball.dir=1; ball.active=true;
+  ringStart = flightStart;
+}
+
+function returnToOpponent(){ // 自動で打ち返す（自分→相手）
+  const x1 = W*randRange(CFG.OPP_RANGE[0],CFG.OPP_RANGE[1]);
+  const y1 = H*0.38;
+  const from={x:hitX,y:hitY}, ctrl={x:W*0.5,y:H*CFG.NET_Y_RATIO*0.94}, to={x:x1,y:y1};
+  ball.curve = makeBezier(from,ctrl,to);
+  ball.dir=-1; ball.active=true;
+  flightStart=performance.now();
+  flightDur = Math.max(420, ringDur*0.9); // 返球は気持ち早い
+}
+
+function loop(t){
+  if(!running){return;}
+  raf=requestAnimationFrame(loop);
+  const now=performance.now();
+  const dt=now-t0; t0=now; timePlayedMs+=dt;
+
+  // 難易度勾配：時間とヒット数で速く＆シビアに
+  const timeRate = Math.min(1, timePlayedMs / (CFG.MAX_TIME_SEC*1000));
+  const hellRate = Math.min(1, Math.max(0,(timePlayedMs/1000-CFG.MAX_TIME_SEC)/(CFG.HELL_TIME_SEC-CFG.MAX_TIME_SEC)));
+  const lvExtra = Math.floor(hits/CFG.LV_UP_EVERY_HIT);
+  level = 1 + lvExtra + Math.floor(timeRate*4);
+  ringDur = CFG.DURATION_MS_L1 * Math.pow(CFG.SPEED_GAIN_PER_LV, (level-1) + timeRate*4);
+  ringDur = Math.max(560, ringDur*(1-hellRate*0.35)); // 鬼へ
+  tol = CFG.TOL_L1 - (CFG.TOL_L1-CFG.TOL_MIN)*(timeRate*0.9);
+
+  draw(now);
+}
+
+function draw(now){
+  // 背景
+  if(bgImg){ ctx.drawImage(bgImg,0,0,W,H); }
+  else { // フォールバック
+    const g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#1a1f31'); g.addColorStop(1,'#0b1224'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  }
+
+  // ボール進行
+  if(ball.active){
+    const u = clamp((now - flightStart)/flightDur, 0, 1);
+    const p = ball.curve(u);
+    ball.x=p.x; ball.y=p.y;
+    // 到達して消える分岐
+    if(u>=1){
+      if(ball.dir===1){ // こちらに到達 → 失敗
+        miss();
+        return;
+      }else{ // 相手側に打ち返し完了 → 新規来球
+        spawnIncoming();
+      }
+    }
+  }
+
+  // ヒット円（常に中央固定）
+  const rBase = CFG.RING_BASE;
+  const prog = clamp((now-ringStart)/ringDur,0,1);
+  const rOuter = lerp(CFG.RING_START, rBase, easeOutCubic(prog));
+  ringR=rOuter;
+
+  // 判定ガイド
+  ctx.save();
+  ctx.translate(hitX, hitY);
+  // 外円（点線）
+  ctx.strokeStyle='rgba(255,210,74,0.95)'; ctx.lineWidth=4; ctx.setLineDash([10,8]); ctx.beginPath();
+  ctx.arc(0,0,rOuter,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+  // 内円
+  ctx.lineWidth=6; ctx.globalAlpha=0.95; ctx.beginPath(); ctx.arc(0,0,rBase,0,Math.PI*2); ctx.stroke();
+  // ボール
+  if(ball.active){ ctx.fillStyle='#ffeaa6'; ctx.beginPath(); ctx.arc(ball.x,ball.y,8,0,Math.PI*2); ctx.fill();}
+  ctx.restore();
+
+  // 文字「HIT!」
+  judgeLbl.style.display = (prog>0.15 && prog<1.1) ? 'block' : 'none';
+  judgeLbl.style.top = (hitY-36)+'px';
+}
+
+function onTap(ev){
+  if(!running || paused) return;
+  const now=performance.now();
+  // Perfect は prog==1 が理想
+  const prog = (now-ringStart)/ringDur;
+  const err = Math.abs(prog-1);
+  if(err<=tol){
+    // 成功
+    combo++; hits++;
+    const mult = (err<=CFG.PERFECT)?3: (err<=CFG.GREAT?2:1);
+    score += Math.round(100*mult);
+    feedback(err);
+    sePing(err<=CFG.PERFECT?1200:900);
+    updateHUD();
+    returnToOpponent();
+  }else{
+    miss();
+  }
 }
 
 function miss(){
-  sMiss(); state='over'; showHint(false); travel=null; ball=null; combo=0;
-  center.style.display='grid'; centerText.textContent=`Score ${score|0} / Lv.${level|0}`; startBtn.textContent='もう一回';
+  sePing(200);
+  combo=0;
+  updateHUD();
+  gameOver();
 }
 
-/* ---------- ステート ---------- */
-function resetAll(){
-  cancelAnimationFrame(raf); raf=0; elapsed=0; state='idle';
-  score=0; combo=0; hits=0; dur=CFG.DUR_MAX; level=1; after90=false; travel=null; ball=null;
-  updateHUD(); centerText.textContent='PingTap — Retro Rally'; startBtn.textContent='スタート';
-  showHint(false); placeRing(); draw();
+function feedback(err){
+  judgeLbl.textContent = (err<=CFG.PERFECT)?'Perfect!':(err<=CFG.GREAT)?'Great!':'Good!';
+  judgeLbl.style.animation='none'; judgeLbl.offsetHeight; // reflow
+  judgeLbl.style.animation='pop .35s ease-out';
 }
-function startGame(){ AC.resume().catch(()=>{}); center.style.display='none'; state='play'; last=performance.now(); showHint(true);
-  if(!raf) raf=requestAnimationFrame(loop);
+document.body.addEventListener('pointerdown', onTap, {passive:true});
+
+/* ====== Pause & UI ====== */
+pauseBtn.addEventListener('click', ()=>{
+  if(!running) return;
+  paused=true; cancelAnimationFrame(raf);
+  pauseOv.style.display='grid';
+});
+resumeBtn.onclick=()=>{ if(!running) return; paused=false; t0=performance.now(); pauseOv.style.display='none'; loop(t0); };
+restartBtn.onclick=()=>{ startGame(); };
+bgmBtn.onclick=()=>{ setBGM(!bgmOn); };
+
+startBtn.onclick=()=>{ setBGM(true); startGame(); };
+retryBtn.onclick=()=>{ startGame(); };
+
+function updateHUD(){
+  hudScore.textContent = `Score ${Math.round(score)}`;
+  hudCombo.textContent = `Combo ${combo}`;
+  hudBest.textContent  = `Best ${Math.round(best)} / Lv.${level}`;
 }
 
-/* ---------- 入力 ---------- */
-function tap(){
-  if(state==='idle'||state==='over'){ resetAll(); startGame(); return; }
-  if(state!=='play' || travel) return; // 飛行中は受付けない
-  const ideal=dur*0.50, err=Math.abs(ring.t-ideal);
-  let grade=null; if(err<=dur*CFG.WIN_PERF) grade='perfect'; else if(err<=dur*CFG.WIN_GREAT) grade='great'; else if(err<=dur*CFG.WIN_GOOD) grade='good';
-  if(!grade) return miss();
-  commit(grade);
-}
-addEventListener('pointerdown', e=>{ e.preventDefault(); tap(); }, {passive:false});
-
-/* ---------- ループ ---------- */
-function loop(t){ raf=requestAnimationFrame(loop); const dt=(t-last)||0; last=t; if(state!=='play'){ draw(); return; } elapsed+=dt; update(dt); draw(); }
-function update(dt){
-  // 待機中：リング縮小＆ボールふわふわ
-  if(!travel){
-    ring.t += dt;
-    const p = Math.min(1, ring.t/dur);
-    const r = CFG.RING_PX * (1-0.6*p);
-    ring.r=r; ringEl.style.width=(r*2)+'px'; ringEl.style.height=(r*2)+'px';
-    hintText.textContent = p<.35 ? 'TAP!' : 'HIT!';
-    showHint(true);
-    if(!ball){ ball={x:ring.x, y:ring.y - innerHeight*0.22}; }
-    ball.y = ring.y - innerHeight*(0.22*(1-Math.min(1,p))); ball.x += (ring.x-ball.x)*0.15;
-    if(ring.t > dur*(1+CFG.WIN_GOOD)) miss();
-    return;
-  }
-  // 飛行中：相手へ→戻る の2フェーズ
-  const T=travel;
-  if(T.phase===0){
-    T.t += dt; const u=Math.min(1, T.t/T.T1), v=u<.5?2*u*u:1-(( -2*u+2)**2)/2, h=innerHeight*CFG.ARC_FRAC;
-    ball.x = T.sx + (T.ex-T.sx)*v;
-    ball.y = (T.sy + (T.ey-T.sy)*v) - Math.sin(Math.PI*v)*h;
-    if(u>=1){ T.phase=1; T.t=0; }
-  }else{
-    T.t += dt; const u=Math.min(1, T.t/T.T2), v=u<.5?2*u*u:1-(( -2*u+2)**2)/2, h=innerHeight*CFG.ARC_FRAC;
-    ball.x = T.ex + (T.nx-T.ex)*v;
-    ball.y = (T.ey + (T.ny-T.ey)*v) - Math.sin(Math.PI*v)*h;
-    if(u>=1){ travel=null; ring.t=0; } // 自分側に着地 → 次の待機へ
-  }
-}
-function draw(){
-  g.clearRect(0,0,W,H);
-  if(ball){ const r=8*DPR; g.fillStyle='#ffe07a'; g.beginPath(); g.arc(ball.x*DPR,ball.y*DPR,r,0,Math.PI*2); g.fill(); g.strokeStyle='rgba(0,0,0,.35)'; g.lineWidth=1*DPR; g.stroke(); }
+function loadBG(){
+  const i=new Image(); i.onload=()=>{bgImg=i;}; i.onerror=()=>{bgImg=null;};
+  i.src=CFG.BG_URL;
 }
 
-/* ---------- ポーズ ---------- */
-pauseBtn.addEventListener('click', ()=>{ if(state!=='play') return; state='pause'; menu.classList.add('show'); stopBGM(); });
-resumeBtn.addEventListener('click', ()=>{ if(state!=='pause') return; menu.classList.remove('show'); state='play'; last=performance.now(); if(!raf) raf=requestAnimationFrame(loop); });
-restartBtn.addEventListener('click', ()=>{ menu.classList.remove('show'); resetAll(); startGame(); });
-bgmBtn.addEventListener('click', ()=>{ if(bgm) stopBGM(); else startBGM(); });
-document.addEventListener('visibilitychange', ()=>{ if(document.hidden && state==='play') pauseBtn.click(); });
+/* ====== Helpers ====== */
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function lerp(a,b,t){return a+(b-a)*t;}
+function easeOutCubic(t){return 1-Math.pow(1-t,3);}
+function randRange(a,b){return a+(b-a)*Math.random();}
+function makeBezier(p0,p1,p2){
+  return (t)=>{
+    const u=1-t;
+    const x=u*u*p0.x + 2*u*t*p1.x + t*t*p2.x;
+    const y=u*u*p0.y + 2*u*t*p1.y + t*t*p2.y;
+    return {x,y};
+  };
+}
 
-/* 初期化 */
-resetAll();
+/* 初期表示の文言更新 */
+document.querySelector('#startOv .box div').textContent=`Score 0 / Lv.1`;
 </script>
