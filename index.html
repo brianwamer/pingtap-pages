@@ -11,13 +11,15 @@
   html,body{margin:0;height:100%;background:#091427;color:#fff;
     font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
   #cv{position:fixed;inset:0;touch-action:manipulation}
+
   .hud{position:fixed;left:10px;right:10px;top:calc(10px + env(safe-area-inset-top,0px));
-       display:flex;gap:12px;z-index:3;pointer-events:none}
+       display:flex;gap:12px;z-index:5;pointer-events:none}
   .pill{min-width:120px;background:var(--hud-bg);backdrop-filter: blur(2px);
         border-radius:18px;padding:10px 14px;font-weight:800;letter-spacing:.2px}
   .pill b{display:block;font-size:16px}.pill small{opacity:.9}
+
   .card{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-        background:rgba(0,0,0,.55);text-align:center;padding:18px;z-index:4}
+        background:rgba(0,0,0,.55);text-align:center;padding:18px;z-index:6}
   .btn{display:inline-grid;place-items:center;min-width:46px;height:42px;border-radius:18px;
        padding:0 16px;background:var(--accent);color:#222;font-weight:800;
        box-shadow:0 4px 0 #caa132;border:0}
@@ -25,12 +27,14 @@
 
 <canvas id="cv"></canvas>
 
+<!-- HUD -->
 <div class="hud">
   <div class="pill" style="flex:1"><b id="sc">Score 0</b><small id="scsub">&nbsp;</small></div>
   <div class="pill" style="flex:1"><b id="cm">Combo 0</b><small id="cmsub">&nbsp;</small></div>
   <div class="pill" style="flex:1"><b id="bs">Best 0</b><small id="lvl">/ Lv.1</small></div>
 </div>
 
+<!-- Start / GameOver -->
 <div class="card" id="start">
   <div style="font-size:26px;margin-bottom:8px">PingTap — Retro Rally</div>
   <div style="opacity:.9;margin-bottom:12px">円が重なる瞬間にTAP。相手→自分→相手とピン球が往復。</div>
@@ -45,15 +49,14 @@
 
 <script>
 (()=>{
-/* ====== 画像ファイル名（そのまま置いてね） ====== */
-const IMG_BG   = 'F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png'; // 背景（台なし）
-const IMG_FG   = 'IMG_4406.png';                              // 台＋ネット（前景）
-const IMG_IDLE = 'IMG_4414.png';                              // 相手 Idle
-const IMG_SWNG = 'IMG_4413.png';                              // 相手 Swing(インパクト)
-const IMG_FOLL = 'IMG_4412.png';                              // 相手 Follow
-const IMG_PD3  = 'paddle3.png';                               // (任意) 自分ラケット3コマ
+/* ========= アセット名（指定のファイル名に合わせ） ========= */
+const BG_URL     = './F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png'; // 台無し背景
+const FG_URL     = './IMG_4406.png';                              // 台＋ネット（前景）
+const OPP_IDLE   = './IMG_4414.png';                              // 相手 idle
+const OPP_SWING  = './IMG_4413.png';                              // 相手 swing（インパクト）
+const OPP_FOLLOW = './IMG_4412.png';                              // 相手 follow
 
-/* ====== チューニング ====== */
+/* ========= 調整用パラメータ ========= */
 const NET_Y      = 0.595;
 const Y_PLAYER   = 0.115;
 const Y_OPP      = 0.085;
@@ -70,20 +73,22 @@ const TOL_DIST_GOOD = 36, TOL_DIST_GREAT = 22, TOL_DIST_PERF = 12;
 const TOL_TIME_GOOD = 12, TOL_TIME_GREAT = 7,  TOL_TIME_PERF  = 3;
 const SCORE_BASE=100, MULT_GOOD=1.00, MULT_GREAT=1.30, MULT_PERF=1.60;
 const COMBO_BONUS=0.15;
-const DEMON_AT=90, HARD_END=120;
+const DEMON_AT=90;
 
-/* 軌道（2次ベジェ） */
-const ARC_H   = 0.12;
-const CURVE_X = 0.10;
+/* 軌道（ベジェ） */
+const ARC_H   = 0.12;     // ネット上のアーチ高さ（比率）
+const CURVE_X = 0.10;     // 横カーブの強さ
 
-/* 相手と自分ラケット表示 */
-const OPP_ANCHOR_Y = 0.56, OPP_SCALE = 0.42;
-const PAD_SCALE    = 0.26, PAD_OFFSET_Y = 14;
+/* 前景（台＋ネット）縮尺：contain＋下アンカー */
+const BG_DES_W = 768, BG_DES_H = 1152; // 背景の基準解像度
+let   FG_SCALE = 0.92;                 // 0.85〜0.98で微調整
+let   FG_Y_OFFSET = 0;                 // 下方向(+)/上方向(-)
 
-/* BGM: オリジナル（ノリ良し） */
-const BGM_ENABLE = true;
+/* 相手スプライトの縮尺＆位置 */
+const OPP_BASE_SCALE = 0.58;          // 立ち位置の大きさ感
+const OPP_FOOT_Y = 0.56;              // 足元の（背景比）基準高さ
 
-/* ====== DOM/Canvas ====== */
+/* ========= DOM/Canvas ========= */
 const cv=document.getElementById('cv'), g=cv.getContext('2d');
 const S=document.getElementById('start'), O=document.getElementById('over');
 const go=document.getElementById('go'), retry=document.getElementById('retry');
@@ -93,139 +98,111 @@ const cm=document.getElementById('cm'), cms=document.getElementById('cmsub');
 const bs=document.getElementById('bs'), lvl=document.getElementById('lvl');
 
 let W=0,H=0,dpr=1;
-function fit(){ dpr=Math.max(1,Math.min(3,devicePixelRatio||1));
+function fit(){
+  dpr=Math.max(1,Math.min(3,devicePixelRatio||1));
   W=innerWidth; H=innerHeight;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   g.setTransform(dpr,0,0,dpr,0,0);
 }
 addEventListener('resize',fit,{passive:true}); fit();
 
-/* ====== 画像ロード ====== */
-const ASSETS={bg:null, fg:null, idle:null, swing:null, follow:null, pad:null};
-function loadImg(src){ return new Promise(res=>{ const i=new Image(); i.src=src; i.onload=()=>res(i); i.onerror=()=>res(null); }); }
-Promise.all([loadImg(IMG_BG),loadImg(IMG_FG),loadImg(IMG_IDLE),loadImg(IMG_SWNG),loadImg(IMG_FOLL),loadImg(IMG_PD3)])
-  .then(([bg,fg,idl,sw,fl,pd])=>{ ASSETS.bg=bg; ASSETS.fg=fg; ASSETS.idle=idl; ASSETS.swing=sw; ASSETS.follow=fl; ASSETS.pad=pd; });
+/* ========= 画像読み込み ========= */
+function load(src){return new Promise(r=>{const i=new Image(); i.crossOrigin='anonymous';
+  i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });}
+const ASSETS = {bg:null, fg:null, oppIdle:null, oppSwing:null, oppFollow:null};
+Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)]).then(([a,b,c,d,e])=>{
+  ASSETS.bg=a; ASSETS.fg=b; ASSETS.oppIdle=c; ASSETS.oppSwing=d; ASSETS.oppFollow=e;
+});
 
-/* ====== WebAudio（SE + BGM） ====== */
-let AC=null, master=null, bgmBus=null;
-const sec = ()=>performance.now()/1000;
-function ac(){ if(AC) return; AC=new (window.AudioContext||window.webkitAudioContext)();
+/* ========= 音（BGM+SE） ========= */
+let AC=null, master=null;
+function ac(){ if(AC) return;
+  AC=new (window.AudioContext||window.webkitAudioContext)();
   master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination);
-  bgmBus=AC.createGain(); bgmBus.gain.value=0.11; bgmBus.connect(master);
 }
 function sePock(){
   ac();
   const o=AC.createOscillator(), g1=AC.createGain();
   o.type='sine'; o.frequency.setValueAtTime(1350,AC.currentTime);
-  o.frequency.exponentialRampToValueAtTime(500,AC.currentTime+0.06);
+  o.frequency.exponentialRampToValueAtTime(520,AC.currentTime+0.06);
   g1.gain.setValueAtTime(0.0001,AC.currentTime);
   g1.gain.exponentialRampToValueAtTime(0.35,AC.currentTime+0.005);
   g1.gain.exponentialRampToValueAtTime(0.0001,AC.currentTime+0.12);
   o.connect(g1).connect(master); o.start(); o.stop(AC.currentTime+0.14);
+  // シュッ（短いノイズ）
   const buf=AC.createBuffer(1,AC.sampleRate*0.07,AC.sampleRate);
   const ch=buf.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*Math.pow(1-i/ch.length,2);
   const n=AC.createBufferSource(); n.buffer=buf; const g2=AC.createGain(); g2.gain.value=0.12;
   n.connect(g2).connect(master); n.start(); n.stop(AC.currentTime+0.07);
 }
-/* --- オリジナルBGM：124BPM, 4つ打ち＋ベース＋コード＋アルペジオ --- */
-let bgmStarted=false;
-function oscAt(t,type,f,vol,decay,detune=0){
-  const o=AC.createOscillator(), g=AC.createGain();
-  o.type=type; o.frequency.value=f; o.detune.value=detune;
-  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t+decay);
-  o.connect(g).connect(bgmBus); o.start(t); o.stop(t+decay*1.2);
-}
-function noiseAt(t,vol,decay,band=null){
-  const dur=decay; const b=AC.createBuffer(1,AC.sampleRate*dur,AC.sampleRate);
-  const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
-  const s=AC.createBufferSource(); s.buffer=b;
-  let node=s;
-  if(band){ const f=AC.createBiquadFilter(); f.type='bandpass'; f.frequency.value=band; f.Q.value=0.6; node=node.connect(f); }
-  const g=AC.createGain(); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.0001,t+decay);
-  node.connect(g).connect(bgmBus); s.start(t); s.stop(t+dur);
-}
+
+/* ノリの良い8bit BGM（I–V–vi–IV進行のループ） */
+let bgmNodes=[];
 function startBGM(){
-  if(bgmStarted) return; if(!BGM_ENABLE) return;
-  ac(); bgmStarted=true;
-  const bpm=124, qn=60/bpm, t0=AC.currentTime+0.05;
-  const bass=[55,41.2,65.4,49]; // A1,E1,C2,G1
-  const chord=[220,164.8,261.6,196]; // A4,E4,C5,G4（上物）
-  for(let bar=0; bar<96; bar++){
-    const baseBeat=bar*4;
-    // ドラム
-    for(let b=0;b<4;b++){
-      const t=t0+(baseBeat+b)*qn;
-      oscAt(t,'triangle',55,0.6,0.18);                  // Kick
-      if(b===1||b===3) noiseAt(t,0.4,0.14,1800);        // Snare(2,4)
-      for(let hh=0; hh<2; hh++){ noiseAt(t+hh*qn*0.5,0.18,0.06,6000); } // Hihat 8分
-    }
-    // ベース（8分）
-    const bf=bass[bar%bass.length];
-    for(let i=0;i<8;i++){
-      const t=t0+(baseBeat+i*0.5)*qn;
-      oscAt(t,'square',bf*(i%2?1:2),0.14,0.20, (i%2?4:-4));
-    }
-    // コード・アルペジオ（表拍）
-    const cf=chord[bar%chord.length];
-    for(let i=0;i<4;i++){
-      const t=t0+(baseBeat+i)*qn;
-      oscAt(t,'sawtooth',cf,0.06,0.40, +7);
-      oscAt(t+0.25*qn,'square',cf*1.5,0.05,0.20,-7); // ちょい跳ね
-    }
-    // 短いメロ（2小節ごと）
-    if(bar%2===0){
-      const t=t0+(baseBeat+1.5)*qn;
-      oscAt(t,'square',440,0.08,0.18,0);
-      oscAt(t+0.25*qn,'square',494,0.07,0.16,0);
-      oscAt(t+0.5*qn,'square',523,0.07,0.22,0);
+  ac(); stopBGM();
+  const T=AC.currentTime, tempo=124/60, bars=64;
+  const seq=[440,330,523,392];        // A4 E4 C5 G4
+  const bass=[110,82.5,131,98];       // 低音
+  for(let bar=0; bar<bars; bar++){
+    for(let beat=0; beat<4; beat++){
+      // コード・アルペジオ
+      const f=seq[beat], o=AC.createOscillator(), g=AC.createGain();
+      o.type='square'; g.gain.value=0.06;
+      const st=T+(bar*4+beat)*0.5/tempo, ed=st+0.45/tempo;
+      o.frequency.setValueAtTime(f,st);
+      o.connect(g).connect(master); o.start(st); o.stop(ed); bgmNodes.push(o,g);
+      // バスドラム（短いノイズ）
+      const k=AC.createBufferSource(), gb=AC.createGain(), b=AC.createBuffer(1,AC.sampleRate*0.08,AC.sampleRate);
+      const dt=b.getChannelData(0); for(let i=0;i<dt.length;i++) dt[i]=(Math.random()*2-1)*(1-i/dt.length);
+      k.buffer=b; gb.gain.value=0.10; k.connect(gb).connect(master);
+      const kt=st; k.start(kt); k.stop(kt+0.08); bgmNodes.push(k,gb);
+      // ベース
+      const bo=AC.createOscillator(), bg=AC.createGain();
+      bo.type='triangle'; bo.frequency.value=bass[beat];
+      bg.gain.value=0.05; bo.connect(bg).connect(master);
+      const bst=st, bed=st+0.48/tempo; bo.start(bst); bo.stop(bed); bgmNodes.push(bo,bg);
     }
   }
 }
-function stopBGM(){ if(!AC||!bgmBus) return; bgmBus.gain.setTargetAtTime(0, AC.currentTime, 0.05); }
+function stopBGM(){ bgmNodes.forEach(n=>{try{n.disconnect()}catch{} }); bgmNodes=[]; }
 
-/* ====== 乱数と打点 ====== */
+/* ========= 乱数＆スポット ========= */
 const R=Math.random, rnd=(a,b)=>a+R()*(b-a);
+const sec = ()=>performance.now()/1000;
 const oppSpot =()=>({ x:rnd(W*X_MARGIN,W*(1-X_MARGIN)),
   y:H*NET_Y - H*Y_OPP + rnd(-H*Y_JIT,H*Y_JIT) });
 const plySpot =()=>({ x:rnd(W*X_MARGIN,W*(1-X_MARGIN)),
   y:H*NET_Y + H*Y_PLAYER + rnd(-H*Y_JIT,H*Y_JIT) });
 
-/* ====== ゲーム状態 ====== */
+/* ========= ゲーム状態 ========= */
 let playing=false, t0=0, dur=START_DUR, phase='toPlayer';
 let from={x:0,y:0}, to={x:0,y:0}, ctrl={x:0,y:0};
 let playerAim={x:0,y:0}, oppAim={x:0,y:0};
 let score=0, combo=0, best=Number(localStorage.getItem('PT_best')||0), level=1, steps=0, startedAt=0;
 let judgeText='', judgeUntil=0;
 bs.textContent='Best '+best.toFixed(0);
-
-// 相手見た目
-let oppPos={x:0,y:0}, oppFlip=false, oppFrame='idle', oppFrameUntil=0;
-// 自分ラケット
-let padFrame=0, padFrameUntil=0;
-
 const showJudge = txt => { judgeText=txt; judgeUntil = sec()+0.85; };
+
 const bez = (p,a,c,b)=>{ const u=1-p; return u*u*a + 2*u*p*c + p*p*b; };
-function setLeg(a,b){
+
+function setLeg(a,b){ // 片道セット
   from=a; to=b; t0=sec();
-  const midx=(a.x+b.x)/2, curve=(b.x-a.x)*rnd(-CURVE_X,CURVE_X);
-  ctrl={ x:midx+curve, y: H*NET_Y - H*ARC_H*rnd(0.85,1.15) };
+  const midx=(a.x+b.x)/2;
+  const curve = (b.x-a.x)*rnd(-CURVE_X, CURVE_X);
+  ctrl = { x: midx + curve, y: H*NET_Y - H*ARC_H * rnd(0.85,1.15) };
 }
 
-/* ====== リセット/開始/終了 ====== */
 function resetState(){
   score=0; combo=0; level=1; steps=0; dur=START_DUR;
   sc.textContent='Score 0'; scs.innerHTML='&nbsp;';
   cm.textContent='Combo 0'; cms.innerHTML='&nbsp;';
   lvl.textContent='/ Lv.1';
-  playerAim=plySpot(); oppAim=oppSpot(); oppPos={x:oppAim.x,y:H*OPP_ANCHOR_Y};
+  playerAim=plySpot(); oppAim=oppSpot();
   phase='toPlayer'; startedAt=sec();
   setLeg(oppAim, playerAim);
-  judgeText=''; judgeUntil=0; padFrame=0; padFrameUntil=0;
+  judgeText=''; judgeUntil=0;
 }
-function startGame(){
-  ac(); if(BGM_ENABLE) startBGM();
-  resetState(); S.style.display='none'; O.style.display='none'; playing=true;
-}
+function startGame(){ ac(); startBGM(); resetState(); S.style.display='none'; O.style.display='none'; playing=true; }
 function gameOver(){
   playing=false; stopBGM();
   if(score>best){ best=score; localStorage.setItem('PT_best',best); }
@@ -234,8 +211,8 @@ function gameOver(){
   O.style.display='flex';
 }
 
-/* ====== 入力（自分の番だけ判定） ====== */
-addEventListener('pointerdown',(e)=>{
+/* ========= 入力（プレイヤー側のみ判定） ========= */
+addEventListener('pointerdown', (e)=>{
   if(!playing || phase!=='toPlayer') return;
   const r=cv.getBoundingClientRect();
   const x=(e.clientX??e.touches?.[0]?.clientX)-r.left;
@@ -257,9 +234,6 @@ addEventListener('pointerdown',(e)=>{
     sc.textContent='Score '+score.toFixed(0); scs.textContent='+'+add;
     cm.textContent='Combo '+combo; cms.textContent=tag; showJudge(tag);
 
-    // 自分ラケットちょいアニメ
-    padFrame = 1; padFrameUntil = sec()+0.08;
-
     if(steps % SPEEDUP_EVERY === 0){
       const elapsed = sec() - startedAt;
       const rate = (elapsed>=DEMON_AT)? 0.90 : SPEEDUP_RATE;
@@ -273,74 +247,32 @@ addEventListener('pointerdown',(e)=>{
   }
 },{passive:true});
 
-/* ====== 時間と半径 ====== */
+/* ========= 時間と半径 ========= */
 function ringRadiusNow(){
   const p = Math.min(1, Math.max(0, (sec()-t0)/dur));
   const left = (phase==='toPlayer') ? (1-p) : 1;
   return RING_BASE + RING_SHRINK*left;
 }
 
-/* ====== スプライト描画 ====== */
-function drawSingle(img, x, y, scale, flip){
-  if(!img) return;
-  const w=img.width, h=img.height;
-  g.save(); g.translate(x,y); if(flip) g.scale(-1,1);
-  g.drawImage(img, -w*scale*0.5, -h*scale, w*scale, h*scale);
-  g.restore();
-}
-function drawSprite3(img, x, y, scale, frame, flip) {
-  if (!img) return;
-  const fw = img.width/3, fh = img.height;
-  g.save();
-  g.translate(x, y);
-  if (flip) g.scale(-1,1);
-  g.drawImage(img, fw*frame, 0, fw, fh, -fw*scale*0.5, -fh*scale, fw*scale, fh*scale);
-  g.restore();
-}
-function drawOpponent(now){
-  const aimX = oppAim?.x ?? W*0.5;
-  const baseY = H*OPP_ANCHOR_Y;
-  oppPos.x += (aimX - oppPos.x) * 0.18;
-  oppPos.y += (baseY - oppPos.y) * 0.18;
-  oppFlip = (aimX > W*0.5);
-
-  const ms = (sec()-t0)*1000;
-  if (phase==='toOpponent' && ms<120){ oppFrame='swing'; oppFrameUntil=sec()+0.12; }
-  else if (phase==='toPlayer' && ms<120){ oppFrame='follow'; oppFrameUntil=sec()+0.12; }
-  else if (sec()>oppFrameUntil){ oppFrame='idle'; }
-
-  const img = oppFrame==='swing' ? ASSETS.swing : oppFrame==='follow' ? ASSETS.follow : ASSETS.idle;
-  drawSingle(img, oppPos.x, oppPos.y, OPP_SCALE, oppFlip);
-}
-function drawPlayerPaddle(){
-  const now=sec();
-  if (ASSETS.pad){
-    if (now>padFrameUntil){
-      if (padFrame===1){ padFrame=2; padFrameUntil=now+0.09; } else padFrame=0;
-    }
-    drawSprite3(ASSETS.pad, playerAim.x, playerAim.y+PAD_OFFSET_Y, PAD_SCALE, padFrame, false);
-  }else{
-    g.fillStyle='#d33';
-    g.beginPath(); g.arc(playerAim.x, playerAim.y+PAD_OFFSET_Y, 14, 0, Math.PI*2); g.fill();
-    g.strokeStyle='#822'; g.lineWidth=3; g.stroke();
-  }
-}
-
-/* ====== ループ ====== */
+/* ========= ループ ========= */
 let last = sec();
 function loop(){
   const now = sec(); last = now;
 
-  // 背景（台なし）
+  /* 背景（cover） */
   if(ASSETS.bg){
-    const r=Math.max(W/ASSETS.bg.width,H/ASSETS.bg.height);
-    const w=ASSETS.bg.width*r, h=ASSETS.bg.height*r;
+    const r=Math.max(W/ASSETS.bg.width,H/ASSETS.bg.height), w=ASSETS.bg.width*r, h=ASSETS.bg.height*r;
     g.drawImage(ASSETS.bg,(W-w)/2,(H-h)/2,w,h);
+  }else{
+    const grad=g.createLinearGradient(0,0,0,H);
+    grad.addColorStop(0,'#1a315d'); grad.addColorStop(1,'#0b1631');
+    g.fillStyle=grad; g.fillRect(0,0,W,H);
   }
 
-  // 相手キャラ
+  /* 相手スプライト（背景の上・台より下） */
   drawOpponent(now);
 
+  /* 進行＆描画（ガイド・ボール） */
   if(playing){
     const p = Math.min(1,(now-t0)/dur);
     const bx = bez(p, from.x, ctrl.x, to.x);
@@ -355,22 +287,28 @@ function loop(){
     const rr = ringRadiusNow();
     drawGuide(playerAim.x,playerAim.y,rr,true,(judgeUntil>now)?judgeText:'TAP!');
 
-    drawPlayerPaddle();
-
-    const hNorm = 1 - 4*(p-0.5)*(p-0.5), rad = 8 * (1 + 0.08*hNorm);
+    // 高さ感（山の中央を高く）
+    const hNorm = 1 - 4*(p-0.5)*(p-0.5);
+    const rad   = 8 * (1 + 0.08*hNorm);
     g.globalAlpha = 0.25*(1-hNorm);
-    g.fillStyle='#000'; g.beginPath(); g.ellipse(bx+2, by+6, rad*0.9, rad*0.55, 0, 0, Math.PI*2); g.fill();
+    g.fillStyle='#000';
+    g.beginPath(); g.ellipse(bx+2, by+6, rad*0.9, rad*0.55, 0, 0, Math.PI*2); g.fill();
     g.globalAlpha = 1;
     g.fillStyle='#fff'; g.beginPath(); g.arc(bx,by,rad,0,Math.PI*2); g.fill();
   }
 
-  // 台＋ネット（前景）
+  /* 前景：台＋ネット（contain & bottom anchor） */
   if(ASSETS.fg){
-    const r=Math.max(W/ASSETS.fg.width,H/ASSETS.fg.height);
-    const w=ASSETS.fg.width*r, h=ASSETS.fg.height*r;
-    g.drawImage(ASSETS.fg,(W-w)/2,(H-h)/2,w,h);
+    const sBase = Math.min(W / BG_DES_W, H / BG_DES_H);
+    const s = sBase * FG_SCALE;
+    const w = ASSETS.fg.width  * s;
+    const h = ASSETS.fg.height * s;
+    const x = (W - w) / 2;
+    const y = H - h + FG_Y_OFFSET * s;
+    g.drawImage(ASSETS.fg, x, y, w, h);
   }
 
+  /* 鬼モード帯 */
   if(playing && (now - startedAt)>=DEMON_AT){
     g.fillStyle='rgba(255,80,80,.18)'; g.fillRect(0,0,W,6);
   }
@@ -379,7 +317,39 @@ function loop(){
 }
 requestAnimationFrame(loop);
 
-/* ====== 描画ユーティリティ ====== */
+/* ========= 相手スプライト描画 ========= */
+function drawOpponent(now){
+  if(!ASSETS.oppIdle) return;
+  // 背景基準でスケール
+  const sBase = Math.min(W / BG_DES_W, H / BG_DES_H);
+  const scale = sBase * OPP_BASE_SCALE;
+  const imgIdle=ASSETS.oppIdle, imgSw=ASSETS.oppSwing, imgFo=ASSETS.oppFollow;
+
+  // 足元の位置
+  const footY = H * OPP_FOOT_Y;
+
+  // アニメ状態（相手に向かう後半でスイング）
+  let img = imgIdle;
+  if(playing && phase==='toOpponent'){
+    const p = Math.min(1,(now-t0)/dur);
+    if(p>0.65 && p<=0.8) img = imgSw;       // 溜め→インパクト
+    else if(p>0.8 && p<=0.95) img = imgFo;  // フォロー
+    else img = imgIdle;
+  }
+
+  // 向き（コート右側なら反転）
+  const faceRight = (oppAim.x < W*0.5);
+  const iw = img.width*scale, ih=img.height*scale;
+  const cx = oppAim.x, x = cx - iw*0.5, y = footY - ih;
+
+  g.save();
+  if(!faceRight){ g.translate(cx,0); g.scale(-1,1); g.translate(-cx,0); }
+  g.imageSmoothingEnabled = false; // ドット感維持
+  g.drawImage(img, faceRight?x:(2*cx - x - iw), y, iw, ih);
+  g.restore();
+}
+
+/* ========= ガイド描画 ========= */
 function drawGuide(x,y,rr,isPlayer,label){
   g.beginPath(); g.lineWidth=3; g.setLineDash([]);
   g.strokeStyle = isPlayer? 'var(--ringP)':'var(--ringO)';
@@ -394,8 +364,11 @@ function drawGuide(x,y,rr,isPlayer,label){
   g.fillText(label, x, y-RING_BASE-10);
 }
 
-/* ====== ボタン ====== */
-go.onclick=startGame;
+/* ========= ボタン ========= */
+go.onclick=()=>{ startGame(); };
 retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; };
+
+/* ========= デバッグ微調整（必要ならコンソールから） ========= */
+window.__pingtap = { setFgScale:(v)=>FG_SCALE=v, setFgY:(v)=>FG_Y_OFFSET=v };
 })();
 </script>
