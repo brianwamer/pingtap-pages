@@ -1,9 +1,7 @@
 <!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>PingTap — Retro Rally (pop loop & hard occlude)</title>
-
+<title>PingTap — Retro Rally (fix center-line clip)</title>
 <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
-
 <style>
   :root{ --hud:rgba(15,18,28,.64); --accent:#ffd34d; --score:#ffe66d; --combo:#7be3ff; --sub:#d7d7d7; }
   html,body{margin:0;height:100%;background:#091427;color:#fff}
@@ -54,7 +52,7 @@
 
 <script>
 (()=>{
-// ===== 画像（指定名） =====
+// ===== 画像 =====
 const BG_URL='./F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png';
 const FG_URL='./IMG_4406.png';
 const OPP_IDLE='./IMG_4414.png', OPP_SWING='./IMG_4413.png', OPP_FOLLOW='./IMG_4412.png';
@@ -71,14 +69,15 @@ const COMBO_BONUS=0.15, ARC_H=0.12, CURVE_X=0.10;
 const BG_DES_W=768, BG_DES_H=1152; let FG_SCALE=0.92, FG_Y_OFFSET=0;
 const OPP_BASE_SCALE=0.58*1.35, OPP_FOOT_Y=0.565; const BALL_FRONT=true;
 
-// ===== 透け対策（ハード） =====
-// 1) ネット帯をがっつり不透明塗り  2) その上側の広めの帯も塗り
-// 3) 自陣の卓上ハーフだけ白センターラインを手描き（床まで落とさない）
+// ===== 透け対策（位置再キャリブレーション） =====
 const OCC_COLOR='#0b213c';
-const OCC_A = {x:0.02, y:0.43, w:0.96, h:0.22}; // ネット周辺を広く覆う
-const OCC_B = {x:0.02, y:0.40, w:0.96, h:0.05}; // さらに上の薄帯
-const TABLE_HALF = {x:0.07, y:0.58, w:0.86, h:0.19}; // 近場ハーフ
-const CENTER_X_NORM=0.5; // 白線は中央
+// ネットの格子帯（不透明で覆う）
+const OCC_A = {x:0.030, y:0.472, w:0.940, h:0.108};
+// ネット上の薄帯（念のため）
+const OCC_B = {x:0.030, y:0.438, w:0.940, h:0.036};
+// 自陣ハーフ卓面（センター線クリップ用）
+const TABLE_HALF = {x:0.070, y:0.607, w:0.860, h:0.128};
+const CENTER_X_NORM=0.500;
 
 // ===== DOM =====
 const cv=document.getElementById('cv'), g=cv.getContext('2d');
@@ -96,7 +95,7 @@ const load=s=>new Promise(r=>{const i=new Image(); i.crossOrigin='anonymous'; i.
 const A={}; Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)])
  .then(([bg,fg,oi,os,of])=>{A.bg=bg;A.fg=fg;A.oi=oi;A.os=os;A.of=of;});
 
-// ===== Audio（Pop loop） =====
+// ===== Audio（現行の良い感じそのまま） =====
 let AC=null, master=null, mGain=null, sfx=null, loopTimer=null, tempo=124;
 function ensureAC(){ if(!AC){ AC=new (window.AudioContext||window.webkitAudioContext)();
   master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination);
@@ -121,19 +120,12 @@ function startBGM(){
   loopTimer=setInterval(()=>{
     if(!AC||AC.state!=='running') return;
     const beat=60/tempo, now=AC.currentTime+0.04;
-    // 明るい分解和音（C→F→G→Am）
     const arp=[[261.6,329.6,392.0],[349.2,440.0,523.3],[392.0,493.9,587.3],[440.0,523.3,659.3]];
-    for(let c=0;c<4;c++){ const a=arp[c];
-      for(let i=0;i<4;i++){ tone(a[i%3], now+(c*4+i)*(beat/2), beat*0.40, 0.2, 'square'); }
-    }
-    // ベース
+    for(let c=0;c<4;c++){ const a=arp[c]; for(let i=0;i<4;i++){ tone(a[i%3], now+(c*4+i)*(beat/2), beat*0.40, 0.2, 'square'); } }
     const bass=[130.8,174.6,196.0,220.0]; for(let i=0;i<4;i++){ tone(bass[i], now+i*beat, beat*0.9, 0.14,'triangle'); }
-    // ハイハット
     const mkHat=(t)=>{const n=AC.createBufferSource(), b=AC.createBuffer(1,2000,AC.sampleRate), d=b.getChannelData(0);
-      for(let i=0;i<d.length;i++){ d[i]=(Math.random()*2-1)*(1-i/d.length); } n.buffer=b; const g=AC.createGain(); g.gain.value=0.03;
-      n.connect(g).connect(mGain); n.start(t);
-    };
-    mkHat(now+beat*0.25); mkHat(now+beat*0.75); mkHat(now+beat*1.25); mkHat(now+beat*1.75); mkHat(now+beat*2.25); mkHat(now+beat*2.75); mkHat(now+beat*3.25); mkHat(now+beat*3.75);
+      for(let i=0;i<d.length;i++){ d[i]=(Math.random()*2-1)*(1-i/d.length); } n.buffer=b; const g=AC.createGain(); g.gain.value=0.03; n.connect(g).connect(mGain); n.start(t); };
+    for(let k=0.25;k<4;k+=0.5) mkHat(now+beat*k);
   }, Math.max(120, 1000*4*(60/tempo)));
 }
 function stopBGM(){ if(loopTimer){clearInterval(loopTimer); loopTimer=null;} }
@@ -153,7 +145,7 @@ let score=0, combo=0, best=+(localStorage.getItem('PT_best')||0), level=1, steps
 let judgeText='', judgeUntil=0, judgeColor='#ffe38a';
 bestStart.textContent='Best '+best;
 
-function setLeg(a,b){ from=a;to=b;t0=sec(); const midx=(a.x+b.x)/2, curve=(b.x-a.x)*rnd(-CURVE_X,CURVE_X);
+function setLeg(a,b){ from=a;to=b;t0=sec(); const midx=(a.x+b.x)/2, curve=(b.x-a.x)*rnd(-0.10,0.10);
   ctrl={x:midx+curve, y:H*NET_Y - H*ARC_H*rnd(0.85,1.15)}; }
 
 function updateLvTime(){ const t=Math.max(0,Math.floor(sec()-startedAt)); const mm=String(Math.floor(t/60)); const ss=String(t%60).padStart(2,'0');
@@ -178,9 +170,9 @@ addEventListener('pointerdown',e=>{
   if(!playing||phase!=='toPlayer') return;
   const r=cv.getBoundingClientRect(), x=(e.clientX??e.touches?.[0]?.clientX)-r.left, y=(e.clientY??e.touches?.[0]?.clientY)-r.top;
   const rr=ringRadiusNow(), dt=Math.abs(rr-RING_BASE), d=Math.hypot(x-playerAim.x,y-playerAim.y);
-  let mult=0, tag=''; if(dt<=TOL_TIME_PERF && d<=TOL_DIST_PERF){mult=MULT_PERF;tag='PERFECT!';judgeColor='#ff6b6b';}
-  else if(dt<=TOL_TIME_GREAT && d<=TOL_DIST_GREAT){mult=MULT_GREAT;tag='GREAT!';judgeColor='#7bdcff';}
-  else if(dt<=TOL_TIME_GOOD && d<=TOL_DIST_GOOD){mult=MULT_GOOD;tag='GOOD!';judgeColor='#ffe38a';}
+  let mult=0, tag=''; if(dt<=3 && d<=12){mult=MULT_PERF;tag='PERFECT!';judgeColor='#ff6b6b';}
+  else if(dt<=7 && d<=22){mult=MULT_GREAT;tag='GREAT!';judgeColor='#7bdcff';}
+  else if(dt<=12 && d<=36){mult=MULT_GOOD;tag='GOOD!';judgeColor='#ffe38a';}
   if(mult>0){
     sePock(1400,0.12);
     const add=Math.round(SCORE_BASE*mult*(1+combo*COMBO_BONUS));
@@ -196,28 +188,18 @@ function ringRadiusNow(){ const p=Math.min(1,Math.max(0,(sec()-t0)/dur)); return
 // ===== ループ =====
 function loop(){
   const now=sec();
-  // 背景
   if(A.bg){ const r=Math.max(W/A.bg.width,H/A.bg.height), w=A.bg.width*r, h=A.bg.height*r; g.drawImage(A.bg,(W-w)/2,(H-h)/2,w,h); }
   else{ const grd=g.createLinearGradient(0,0,0,H); grd.addColorStop(0,'#1a315d'); grd.addColorStop(1,'#0b1631'); g.fillStyle=grd; g.fillRect(0,0,W,H); }
 
-  // 相手
   drawOpponent(now);
+  hardOcclude();     // ← 先に塗って完全不透明化
+  drawForeground();  // ← 台＋ネット画像を最後に
 
-  // 透け対策（前景の直下に**不透明**でドカッと）
-  hardOcclude();
-
-  // 前景
-  drawForeground();
-
-  // 進行
   if(playing){
     const p=Math.min(1,(now-t0)/dur), bx=bez(p,from.x,ctrl.x,to.x), by=bez(p,from.y,ctrl.y,to.y);
     if(phase==='toOpponent' && p<0.02){ sePock(900,0.10); } // 相手ヒット音
     if(p>=1){ if(phase==='toPlayer') gameOver(); else { phase='toPlayer'; playerAim=plySpot(); setLeg(oppAim,playerAim);} }
     drawGuide(playerAim.x,playerAim.y,ringRadiusNow(),true,(judgeUntil>now)?judgeText:'TAP!', (judgeUntil>now)?judgeColor:'#ffe38a');
-    if(BALL_FRONT){ const hN=1-4*(p-0.5)*(p-0.5), rad=8*(1+0.08*hN);
-      g.globalAlpha=0.25*(1-hN); g.fillStyle='#000'; g.beginPath(); g.ellipse(bx+2,by+6,rad*0.9,rad*0.55,0,0,Math.PI*2); g.fill();
-      g.globalAlpha=1; g.fillStyle='#fff'; g.beginPath(); g.arc(bx,by,rad,0,Math.PI*2); g.fill(); }
     updateLvTime();
   }
   requestAnimationFrame(loop);
@@ -231,18 +213,22 @@ function drawForeground(){ if(!A.fg) return;
   const keep=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false; g.drawImage(A.fg,x,y,w,h); g.imageSmoothingEnabled=keep;
 }
 
-// ===== オクルード＋センター白線（卓上ハーフだけ） =====
+// ===== オクルード＆センター線（卓面だけにクリップ） =====
 function hardOcclude(){ if(!A.fg) return;
   const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), s=sBase*FG_SCALE;
   const fw=A.fg.width*s, fh=A.fg.height*s, fx=Math.round((W-fw)/2), fy=Math.round(H-fh+FG_Y_OFFSET*s);
 
+  // ネット周りを完全不透明で覆う
   g.save(); g.globalAlpha=1; g.fillStyle=OCC_COLOR;
   g.fillRect(fx+OCC_A.x*fw, fy+OCC_A.y*fh, OCC_A.w*fw, OCC_A.h*fh);
   g.fillRect(fx+OCC_B.x*fw, fy+OCC_B.y*fh, OCC_B.w*fw, OCC_B.h*fh);
-  // 卓上ハーフのセンター白線（床まで落とさない）
+
+  // 自陣ハーフだけをクリップ → その中に白いセンター線
   const tx=fx+TABLE_HALF.x*fw, ty=fy+TABLE_HALF.y*fh, tw=TABLE_HALF.w*fw, th=TABLE_HALF.h*fh;
+  g.beginPath(); g.rect(tx,ty,tw,th); g.clip();
   const cx=fx+CENTER_X_NORM*fw;
-  g.fillStyle='#ffffff'; g.fillRect(cx-1.2, ty+3, 2.4, th-6);
+  g.fillStyle='#ffffff';
+  g.fillRect(cx-1.2, ty+th*0.06, 2.4, th*0.88); // 上下に余白、床側へは出ない
   g.restore();
 }
 
@@ -255,7 +241,7 @@ function drawOpponent(now){
   const keep=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false; g.drawImage(img, faceRight?x:(2*cx-x-iw), Math.round(y), Math.round(iw), Math.round(ih)); g.imageSmoothingEnabled=keep; g.restore();
 }
 
-// ===== ガイド（色も可変） =====
+// ===== ガイド（色可変） =====
 function drawGuide(x,y,rr,isPlayer,label,labelColor){
   g.beginPath(); g.lineWidth=3; g.setLineDash([]); g.strokeStyle=isPlayer?'rgba(255,235,150,.95)':'rgba(170,220,255,.92)'; g.arc(x,y,RING_BASE,0,Math.PI*2); g.stroke();
   g.beginPath(); g.lineWidth=3; g.setLineDash(isPlayer?[6,6]:[]); g.strokeStyle=isPlayer?'rgba(255,235,150,.95)':'rgba(170,220,255,.92)'; g.arc(x,y,rr,0,Math.PI*2); g.stroke(); g.setLineDash([]);
