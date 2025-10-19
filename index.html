@@ -8,9 +8,7 @@
     --ringO: rgba(170,220,255,.92);
     --accent:#ffd34d;
     /* ポップ配色 */
-    --c-score:#FFE36E;
-    --c-combo:#A8D6FF;
-    --c-best:#C8FF9A;
+    --c-score:#FFE36E; --c-combo:#A8D6FF; --c-best:#C8FF9A;
   }
   html,body{margin:0;height:100%;background:#091427;color:#fff;
     font-family:-apple-system,BlinkMacSystemFont,"Hiragino Maru Gothic ProN","M PLUS Rounded 1c","Noto Sans JP",sans-serif}
@@ -22,10 +20,7 @@
         border-radius:18px;padding:10px 14px;font-weight:800;letter-spacing:.2px}
   .pill b{display:block;font-size:16px;text-shadow:0 2px 0 rgba(0,0,0,.45),0 0 8px rgba(0,0,0,.2)}
   .pill small{opacity:.9}
-
-  #sc{color:var(--c-score)}
-  #cm{color:var(--c-combo)}
-  #bs{color:var(--c-best)}
+  #sc{color:var(--c-score)} #cm{color:var(--c-combo)} #bs{color:var(--c-best)}
 
   .card{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
         background:rgba(0,0,0,.55);text-align:center;padding:18px;z-index:10}
@@ -33,7 +28,7 @@
        padding:0 16px;background:var(--accent);color:#222;font-weight:800;
        box-shadow:0 4px 0 #caa132;border:0}
 
-  /* スタート文面をポップに */
+  /* スタート文面（スーファミ風に太字＆影） */
   .title{font-size:32px;font-weight:900;letter-spacing:.5px;
          text-shadow:0 3px 0 rgba(0,0,0,.5),0 0 14px rgba(0,0,0,.25)}
   .lead{font-size:20px;margin:.6em 0 1.0em 0;text-shadow:0 2px 0 rgba(0,0,0,.45)}
@@ -57,7 +52,10 @@
 </div>
 
 <div class="card" id="over" style="display:none">
-  <div id="final" style="font-size:22px;margin-bottom:10px;text-shadow:0 3px 0 rgba(0,0,0,.5)">Score 0 / Lv.1</div>
+  <!-- ★ 2段表示に固定 -->
+  <div id="final" style="font-size:22px;margin-bottom:10px;text-align:center;text-shadow:0 3px 0 rgba(0,0,0,.5)">
+    Score 0<br>Lv.1
+  </div>
   <button id="retry" class="btn">もう一回</button>
 </div>
 
@@ -70,7 +68,7 @@ const OPP_IDLE   = './IMG_4414.png';
 const OPP_SWING  = './IMG_4413.png';
 const OPP_FOLLOW = './IMG_4412.png';
 
-/* ===== パラメータ（配置・スケールは元コードから不変） ===== */
+/* ===== パラメータ（配置・スケールは据え置き） ===== */
 const NET_Y      = 0.595;
 const Y_PLAYER   = 0.115;
 const Y_OPP      = 0.085;
@@ -92,15 +90,22 @@ const ARC_H=0.12, CURVE_X=0.10;
 const BG_DES_W=768, BG_DES_H=1152;
 let FG_SCALE=0.92, FG_Y_OFFSET=0;
 
-/* 相手の大きさ・足元位置（据え置き） */
+/* 相手（据え置き） */
 const OPP_BASE_SCALE = 0.58 * 1.35;
 const OPP_FOOT_Y = 0.565;
 
 /* ボールは最前面 */
 const BALL_FRONT=true;
 
-/* ネット透け対策：細めの帯（前景直下） */
-const OCCLUDER = { enabled:true, color:'#0b213c', alpha:0.9, height:0.028, offsetY:-0.001 };
+/* ★ ネット“透け”対策：天板色に近い帯を前景直下に敷く
+   → 前景PNGの穴（ネットの目）から見える色をこれで埋める */
+const OCCLUDER = {
+  enabled:true,
+  color:'#1b4d74',  // 天板っぽい青
+  alpha:1.0,        // 透けないように完全不透明
+  height:0.115,     // ネット高さぶんをしっかり覆う
+  offsetY:-0.004    // 微調整
+};
 
 /* ===== DOM/Canvas ===== */
 const cv=document.getElementById('cv'), g=cv.getContext('2d');
@@ -126,10 +131,15 @@ const A={bg:null,fg:null,oppIdle:null,oppSw:null,oppFo:null};
 Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)])
   .then(([a,b,c,d,e])=>{A.bg=a;A.fg=b;A.oppIdle=c;A.oppSw=d;A.oppFo=e;});
 
-/* ===== 音 ===== */
+/* ===== 音：BGM & SE（iOS対策：必ず resume） ===== */
 let AC=null, master=null, bgmNodes=[];
-function ac(){ if(AC) return; AC=new (window.AudioContext||window.webkitAudioContext)();
-  master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination); }
+function ac(){
+  if(!AC){
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination);
+  }
+  if(AC.state==='suspended'){ AC.resume(); }
+}
 function sePock(){
   ac();
   const o=AC.createOscillator(), g1=AC.createGain();
@@ -144,18 +154,18 @@ function sePock(){
   const n=AC.createBufferSource(); n.buffer=buf; const g2=AC.createGain(); g2.gain.value=0.12;
   n.connect(g2).connect(master); n.start(); n.stop(AC.currentTime+0.07);
 }
-/* 8-bit調BGM */
+/* 8-bit調BGM（シンプルで確実に鳴る） */
 function startBGM(){ ac(); stopBGM();
-  const T=AC.currentTime, tempo=124/60, bars=64;
-  const lead=[440,330,523,392], bass=[110,82.5,131,98];
-  for(let bar=0; bar<bars; bar++){
-    for(let beat=0; beat<4; beat++){
-      const st=T+(bar*4+beat)*0.5/tempo, ed=st+0.45/tempo;
-      const o=AC.createOscillator(), g=AC.createGain(); o.type='square'; g.gain.value=0.06;
-      o.frequency.value=lead[beat]; o.connect(g).connect(master); o.start(st); o.stop(ed); bgmNodes.push(o,g);
-      const bo=AC.createOscillator(), bg=AC.createGain(); bo.type='triangle'; bg.gain.value=0.05;
-      bo.frequency.value=bass[beat]; bo.connect(bg).connect(master); bo.start(st); bo.stop(ed); bgmNodes.push(bo,bg);
-    }
+  const T=AC.currentTime, tempo=124/60, beats=64*4;
+  for(let k=0;k<beats;k++){
+    const st=T+k*0.5/tempo, ed=st+0.45/tempo;
+    const f1=[440,330,523,392][k%4], f2=[110,82.5,131,98][k%4];
+
+    const o=AC.createOscillator(), g=AC.createGain(); o.type='square'; g.gain.value=0.06;
+    o.frequency.value=f1; o.connect(g).connect(master); o.start(st); o.stop(ed); bgmNodes.push(o,g);
+
+    const b=AC.createOscillator(), gb=AC.createGain(); b.type='triangle'; gb.gain.value=0.05;
+    b.frequency.value=f2; b.connect(gb).connect(master); b.start(st); b.stop(ed); bgmNodes.push(b,gb);
   }
 }
 function stopBGM(){ bgmNodes.forEach(n=>{try{n.disconnect()}catch{} }); bgmNodes=[]; }
@@ -189,11 +199,13 @@ function gameOver(){
   playing=false; stopBGM();
   if(score>best){best=score;localStorage.setItem('PT_best',best);}
   bs.textContent='Best '+best.toFixed(0);
-  F.textContent='Score '+score.toFixed(0)+' / Lv.'+level; O.style.display='flex';
+  F.innerHTML='Score '+score.toFixed(0)+'<br>Lv.'+level;  // ★ 2段表示
+  O.style.display='flex';
 }
 
 /* ===== 入力 ===== */
 addEventListener('pointerdown', e=>{
+  ac();                         // ★ どのタップでも resume
   if(!playing||phase!=='toPlayer') return;
   const r=cv.getBoundingClientRect(); const x=(e.clientX??e.touches?.[0]?.clientX)-r.left;
   const y=(e.clientY??e.touches?.[0]?.clientY)-r.top;
@@ -230,7 +242,7 @@ function loop(){
   /* 相手（背景の上） */
   drawOpponent(now);
 
-  /* ネットの透けを抑える帯（前景の直下に薄く） */
+  /* ★ ネットの穴から背景が見えないよう、前景の直下に“天板色の帯”を敷く */
   if(OCCLUDER.enabled){
     const h=H*OCCLUDER.height, y=H*(NET_Y + OCCLUDER.offsetY) - h/2;
     g.save(); g.globalAlpha=OCCLUDER.alpha; g.fillStyle=OCCLUDER.color;
@@ -248,17 +260,15 @@ function loop(){
     if(p>=1){
       if(phase==='toPlayer'){ gameOver(); }
       else {
-        /* 相手が打ち返した瞬間のSE */
-        sePock();
+        sePock();  // ★ 相手返球の瞬間にもSE
         phase='toPlayer'; playerAim=plySpot(); setLeg(oppAim,playerAim);
       }
     }
 
-    /* 自分側ガイドのみ */
+    /* 自分側ガイドのみ（相手ガイドは非表示） */
     const rr=ringRadiusNow();
     drawGuide(playerAim.x,playerAim.y,rr,true,(judgeUntil>now)?judgeText:'TAP!');
 
-    /* ボール最前面 */
     if(BALL_FRONT){
       const hNorm=1-4*(p-0.5)*(p-0.5), rad=8*(1+0.08*hNorm);
       g.globalAlpha=0.25*(1-hNorm); g.fillStyle='#000';
@@ -267,7 +277,7 @@ function loop(){
     }
   }
 
-  /* 激ムズモードマーカー */
+  /* 激ムズマーカー */
   if(playing && (now-startedAt)>=DEMON_AT){ g.fillStyle='rgba(255,80,80,.18)'; g.fillRect(0,0,W,6); }
 
   requestAnimationFrame(loop);
@@ -283,7 +293,7 @@ function drawForeground(){
   g.drawImage(A.fg,x,y,w,h); g.imageSmoothingEnabled=keep;
 }
 
-/* ===== 相手（スプライト3枚／左右反転・サイズ据え置き） ===== */
+/* ===== 相手（3枚スプライト） ===== */
 function drawOpponent(now){
   if(!A.oppIdle) return;
   const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), scale=sBase*OPP_BASE_SCALE;
@@ -312,7 +322,7 @@ function drawGuide(x,y,rr,isPlayer,label){
 go.onclick=()=>{ startGame(); };
 retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; };
 
-/* デバッグフック（位置・スケールは据え置きのまま） */
-window.__pingtap={ setFg:(s,yo=0)=>{FG_SCALE=s;FG_Y_OFFSET=yo;} };
+/* 念のため：最初のタップでBGM解禁 */
+window.addEventListener('pointerdown', ()=>ac(), {once:true, passive:true});
 })();
 </script>
