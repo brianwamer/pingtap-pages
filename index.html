@@ -301,14 +301,16 @@ function drawForegroundWithOccluder(){
   const fw=A.fg.width*s, fh=A.fg.height*s;
   const fx=Math.round((W-fw)/2), fy=Math.round(H-fh+FG_Y_OFFSET*s);
 
-  // 穴だけ白：マスクを前景と同じスケールで貼る
+  // 穴だけ白：マスクを前景と同じスケールで貼る（にじみ防止でスムージングOFF）
   if(netMask){
+    const keep=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false;
     g.drawImage(netMask, fx, fy, fw, fh);
+    g.imageSmoothingEnabled=keep;
   }
 
   // 前景（台＋ネット）
-  const keep=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false;
-  g.drawImage(A.fg,fx,fy,fw,fh); g.imageSmoothingEnabled=keep;
+  const keep2=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false;
+  g.drawImage(A.fg,fx,fy,fw,fh); g.imageSmoothingEnabled=keep2;
 }
 
 /* ===== 相手 ===== */
