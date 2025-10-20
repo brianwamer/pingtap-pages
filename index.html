@@ -64,6 +64,11 @@
 
   .judge{position:fixed;left:0;top:0;pointer-events:none;z-index:8;
          font:700 16px "DotGothic16",system-ui;text-shadow:0 2px 0 rgba(0,0,0,.55)}
+
+  /* ---- 追加：入力用UI ---- */
+  .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+  .txt{font:700 18px 'DotGothic16',system-ui;padding:10px 12px;border-radius:14px;border:0;outline:0;width:min(360px,80%);text-align:center}
+  .btn.secondary{background:#b9ffa8;box-shadow:0 6px 0 #7bc674}
 </style>
 
 <canvas id="cv"></canvas>
@@ -80,18 +85,64 @@
   <div class="desc">円が重なる瞬間に <b>TAP!</b></div>
   <div class="desc" style="margin-bottom:12px">Perfect / Great / Good で加点＆コンボ。<br>90秒で<strong>激ムズ</strong>モード。</div>
   <div class="desc" id="bestInfo" style="margin-bottom:14px"></div>
-  <button id="go" class="btn">スタート</button>
+  <div class="row" style="margin-bottom:10px">
+    <button id="go" class="btn">スタート</button>
+    <!-- 追加：PGSランキング（デイリー/週間/通算はPGS標準UIに任せる） -->
+    <button id="seeRank" class="btn secondary">ランキング</button>
+  </div>
+</div>
+
+<!-- 追加：初回だけ出すアプリ内ニックネーム（PGSの表示名とは別） -->
+<div class="card" id="namecard" style="display:none">
+  <div class="title" style="font-size:28px">名前を決めよう</div>
+  <div class="desc" style="margin-bottom:10px">PGSのランキング名はGoogleのゲーマータグ。<br>ここはゲーム内の表示用ニックネーム。</div>
+  <input id="nameinp" class="txt" maxlength="16" placeholder="例：よう">
+  <div class="row" style="margin-top:8px">
+    <button id="nameset" class="btn">決定</button>
+  </div>
 </div>
 
 <div class="card" id="over" style="display:none">
   <div id="final" class="title" style="font-size:28px">Score 0<br>Lv.1</div>
-  <button id="retry" class="btn">もう一回</button>
+  <div class="row" style="margin-top:10px">
+    <button id="retry" class="btn">もう一回</button>
+    <!-- 追加：ゲームオーバーからもランキングへ -->
+    <button id="rank2" class="btn secondary">ランキング</button>
+  </div>
 </div>
 
 <div id="judge" class="judge" style="display:none">TAP!</div>
 
 <script>
 (()=>{
+// ======== 追加：PGS/広告 ブリッジ（WebではNO-OP） ========
+const LEADERBOARD_ID = "PGS_LEADERBOARD_ID_HERE"; // ← 後で1か所置換
+const Native = (() => {
+  const A = (typeof window!=='undefined') ? window.AndroidBridge : null;
+  return {
+    submitScore(score){
+      try{
+        if(!A) return;
+        // 実装差異に両対応
+        if(typeof A.submitScore2 === 'function') A.submitScore2(score|0, LEADERBOARD_ID);
+        else if(typeof A.submitScore === 'function') A.submitScore(score|0);
+      }catch(_){}
+    },
+    showBoard(){
+      try{
+        if(!A) return;
+        if(typeof A.showLeaderboard2 === 'function') A.showLeaderboard2(LEADERBOARD_ID);
+        else if(typeof A.showLeaderboard === 'function') A.showLeaderboard();
+      }catch(_){}
+    },
+    showAd(reason){
+      try{ A?.showAd?.(String(reason||'')); }catch(_){}
+    }
+  };
+})();
+
+// ======== 元コード ========
+
 /* ===== 画像 ===== */
 const BG_URL     = './F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png';
 const FG_URL     = './IMG_4465.png';   // 新しい台
@@ -135,6 +186,12 @@ const F=document.getElementById('final'), judgeEl=document.getElementById('judge
 const sc=document.getElementById('sc'), scs=document.getElementById('scsub');
 const cm=document.getElementById('cm'), cms=document.getElementById('cmsub');
 const lvline=document.getElementById('lvline'), bestInfo=document.getElementById('bestInfo');
+// 追加：UI参照
+const btnSeeRank=document.getElementById('seeRank');
+const btnRank2=document.getElementById('rank2');
+const nameCard=document.getElementById('namecard');
+const nameInp=document.getElementById('nameinp');
+const nameSet=document.getElementById('nameset');
 
 let W=0,H=0,dpr=1;
 function fit(){ dpr=Math.max(1,Math.min(3,devicePixelRatio||1));
@@ -251,6 +308,11 @@ let playerAim={x:0,y:0}, oppAim={x:0,y:0};
 let score=0, combo=0, best=Number(localStorage.getItem('PT_best')||0), level=1, steps=0, startedAt=0;
 let judgeText='', judgeUntil=0, judgeColor='#ffe38a';
 bestInfo.textContent='Best '+best.toFixed(0);
+// 追加：広告頻度カウンタ
+let _playCount=0;
+// 追加：アプリ内ニックネーム（挨拶用）
+const Name = { get:()=>localStorage.getItem('PT_name')||'', set:n=>localStorage.setItem('PT_name',(n||'Guest').trim().slice(0,16)) };
+
 const bez=(p,a,c,b)=>{const u=1-p; return u*u*a+2*u*p*c+p*p*b;}
 function setLeg(a,b){ from=a;to=b;t0=sec();
   const midx=(a.x+b.x)/2, curve=(b.x-a.x)*rnd(-CURVE_X,CURVE_X);
@@ -287,7 +349,19 @@ function startGame(){ ac(); startBGM(); resetState(); S.style.display='none'; O.
 function gameOver(){
   playing=false; stopBGM();
   if(score>best){best=score;localStorage.setItem('PT_best',best); bestInfo.textContent='Best '+best.toFixed(0); }
-  F.innerHTML='Score '+score.toFixed(0)+'<br>Lv.'+level; O.style.display='flex';
+  F.innerHTML='Score '+score.toFixed(0)+'<br>Lv.'+level;
+
+  // ★ ランキング送信（WebではNO-OP／アプリでPGS送信）
+  Native.submitScore(Math.floor(score));
+
+  // ★ 2回に1回だけ短広告（アプリのみ有効）
+  _playCount++;
+  if((_playCount % 2) === 0){
+    pauseGame();            // 念のため停止
+    Native.showAd('post_game'); // 閉じ時にAndroid側から __pingtap.resume() を呼ぶ
+  }
+
+  O.style.display='flex';
 }
 
 /* ===== 入力 ===== */
@@ -415,6 +489,34 @@ function drawGuide(x,y,rr,isPlayer,label,labelColor='#ffe38a'){
 /* ===== UI ===== */
 go.onclick=()=>{ startGame(); };
 retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; };
+btnSeeRank.onclick=()=>{ Native.showBoard(); };
+btnRank2.onclick=()=>{ Native.showBoard(); };
+
+// ======== 追加：初回ニックネーム（任意） ========
+function ensureName(){
+  const has = !!Name.get();
+  nameCard.style.display = has ? 'none' : 'flex';
+  if(!has){ nameInp.value=''; nameInp.focus(); }
+  return has;
+}
+nameSet.onclick=()=>{
+  const v=(nameInp.value||'').trim();
+  if(!v){ alert('名前を入力してね'); return; }
+  Name.set(v); nameCard.style.display='none';
+};
+document.addEventListener('DOMContentLoaded', ()=>{ ensureName(); });
+
+// ======== 追加：バックグラウンド/広告用 ポーズ&レジューム ========
+function pauseGame(){ if(playing) playing=false; stopBGM(); }
+function resumeGame(){
+  if(!playing && S.style.display==='none' && O.style.display==='none'){
+    startBGM(); playing=true;
+  }
+}
+document.addEventListener('visibilitychange', ()=>{ document.hidden ? pauseGame() : resumeGame(); });
+// Android側から __pingtap.pause()/resume() を呼べるように公開
+window.__pingtap = Object.assign(window.__pingtap||{}, { pause:pauseGame, resume:resumeGame });
+
 window.addEventListener('pointerdown', ()=>ac(), {once:true, passive:true});
 })();
 </script>
