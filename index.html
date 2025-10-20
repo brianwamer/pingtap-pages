@@ -67,7 +67,7 @@
 (()=>{
 /* ===== 画像 ===== */
 const BG_URL     = './F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png';
-const FG_URL     = './IMG_4465.png';   // ← 新しい台
+const FG_URL     = './IMG_4465.png';   // 新しい台
 const OPP_IDLE   = './IMG_4414.png';
 const OPP_SWING  = './IMG_4413.png';
 const OPP_FOLLOW = './IMG_4412.png';
@@ -83,13 +83,14 @@ const COMBO_BONUS=0.15, DEMON_AT=90;
 const ARC_H=0.12, CURVE_X=0.10;
 const BG_DES_W=768, BG_DES_H=1152;
 
-/* ★台サイズを小さめ */
-let FG_SCALE=0.82;      // 0.80〜0.86で調整可
-let FG_Y_OFFSET=0;      // 追加で上下微調整したい時は±値
+/* 台は少し小さく・下端基準で配置 */
+let FG_SCALE=0.82;
+let FG_Y_OFFSET=0;
 
 const OPP_BASE_SCALE=0.58*1.35, OPP_FOOT_Y=0.565;
 const BALL_FRONT=true;
 
+/* ===== Canvas / DOM ===== */
 const cv=document.getElementById('cv'), g=cv.getContext('2d');
 const S=document.getElementById('start'), O=document.getElementById('over');
 const go=document.getElementById('go'), retry=document.getElementById('retry');
@@ -110,7 +111,7 @@ addEventListener('resize',fit,{passive:true}); fit();
 function load(src){return new Promise(r=>{const i=new Image(); i.crossOrigin='anonymous';
   i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });}
 const A={bg:null,fg:null,oppIdle:null,oppSw:null,oppFo:null};
-let netBandNorm=null; // {x,y,w,h}（正規化）を自動検出
+let netBandNorm=null;
 
 Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)])
   .then(([a,b,c,d,e])=>{
@@ -118,47 +119,70 @@ Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_F
     if(b) detectNetBand(b);
   });
 
-/* ===== ネット帯を画像から自動検出して、そこを白で塗る ===== */
+/* ===== ネット帯の頑丈な自動検出（上部シルエット内のみ） ===== */
 function detectNetBand(img){
   const iw=img.width, ih=img.height;
   const off=document.createElement('canvas'); off.width=iw; off.height=ih;
   const ctx=off.getContext('2d'); ctx.drawImage(img,0,0);
-  const full=ctx.getImageData(0,0,iw,ih).data;
-  const x0=Math.floor(iw*0.1), x1=Math.floor(iw*0.9);      // 端を避ける
-  const yMin=Math.floor(ih*0.30), yMax=Math.floor(ih*0.80); // ネットがありそうな縦域
+  const data=ctx.getImageData(0,0,iw,ih).data;
 
-  // 行ごとの“完全透明”比率を計算
-  const ratio=new Float32Array(ih);
-  for(let y=yMin;y<=yMax;y++){
-    let cnt=0,total=0;
-    for(let x=x0;x<=x1;x+=2){ // 2px間引き
-      const a=full[(y*iw+x)*4+3];
-      if(a<16) cnt++;
-      total++;
+  // まず「台が存在する」縦範囲（行）を抽出
+  const xL=Math.floor(iw*0.08), xR=Math.floor(iw*0.92);
+  let yTopObj=ih, yBotObj=0;
+  for(let y=0;y<ih;y++){
+    let has=false;
+    for(let x=xL;x<=xR;x+=2){
+      if(data[(y*iw+x)*4+3]>16){ has=true; break; }
     }
-    ratio[y]=cnt/Math.max(1,total);
+    if(has){ yTopObj=Math.min(yTopObj,y); yBotObj=Math.max(yBotObj,y); }
   }
-  // 最大値の行 → ネット中央付近
-  let yPeak=yMin, vPeak=0;
-  for(let y=yMin;y<=yMax;y++) if(ratio[y]>vPeak){vPeak=ratio[y]; yPeak=y;}
-  // 上下に拡張して帯の厚みを取る
-  const thr=vPeak*0.35;
-  let yTop=yPeak, yBot=yPeak;
-  while(yTop>yMin && ratio[yTop-1]>thr) yTop--;
-  while(yBot<yMax && ratio[yBot+1]>thr) yBot++;
+  if(yTopObj>=yBotObj){ // フォールバック
+    netBandNorm={x:0.045,y:0.472,w:0.91,h:0.115}; return;
+  }
 
-  // 幅は画像の 90%、高さは検出厚みに少し余裕
-  const rx=Math.floor(iw*0.05),
-        rw=Math.floor(iw*0.90),
-        ry=Math.max(0, yTop-2),
-        rh=Math.min(ih-ry, (yBot-yTop)+4);
+  // 上部 35% だけを見る（ネットは上側にある想定）
+  const yA = yTopObj;
+  const yB = Math.floor(yTopObj + (yBotObj-yTopObj)*0.35);
+
+  // 各行で「左端と右端の不透明端」を求め、その内側で透明比率を測る
+  const transRatio=new Float32Array(ih).fill(0);
+  for(let y=yA; y<=yB; y++){
+    let L=-1, R=-1;
+    for(let x=xL;x<=xR;x++){
+      if(data[(y*iw+x)*4+3]>16){ L=x; break; }
+    }
+    for(let x=xR;x>=xL;x--){
+      if(data[(y*iw+x)*4+3]>16){ R=x; break; }
+    }
+    if(L>=0 && R>L){
+      let tot=0, hole=0;
+      for(let x=L;x<=R;x+=1){
+        const a=data[(y*iw+x)*4+3];
+        if(a<=16) hole++;
+        tot++;
+      }
+      transRatio[y]=hole/Math.max(1,tot);
+    }
+  }
+
+  // 透明比率が最大の行を中心に帯の厚みを決める
+  let yPeak=yA, vPeak=0;
+  for(let y=yA;y<=yB;y++) if(transRatio[y]>vPeak){vPeak=transRatio[y]; yPeak=y;}
+  if(vPeak<0.1){ // 念のため
+    netBandNorm={x:0.045,y:0.472,w:0.91,h:0.115}; return;
+  }
+  const thr=vPeak*0.45;
+  let y1=yPeak, y2=yPeak;
+  while(y1>yA && transRatio[y1-1]>thr) y1--;
+  while(y2<yB && transRatio[y2+1]>thr) y2++;
+
+  // 横は広めに、少しマージン
+  const rx = Math.floor(iw*0.05);
+  const rw = Math.floor(iw*0.90);
+  const ry = Math.max(0, y1-2);
+  const rh = Math.min(ih-ry, (y2-y1)+4);
 
   netBandNorm={ x:rx/iw, y:ry/ih, w:rw/iw, h:rh/ih };
-
-  // 失敗対策のフォールバック
-  if(!isFinite(netBandNorm.x) || rh<=0){
-    netBandNorm={ x:0.045, y:0.472, w:0.91, h:0.115 };
-  }
 }
 
 /* ===== オーディオ（元のまま） ===== */
@@ -207,7 +231,7 @@ const R=Math.random, rnd=(a,b)=>a+R()*(b-a), sec=()=>performance.now()/1000;
 const oppSpot=()=>({x:rnd(W*X_MARGIN,W*(1-X_MARGIN)), y:H*NET_Y-H*Y_OPP+rnd(-H*Y_JIT,H*Y_JIT)});
 const plySpot=()=>({x:rnd(W*X_MARGIN,W*(1-X_MARGIN)), y:H*NET_Y+H*Y_PLAYER+rnd(-H*Y_JIT,H*Y_JIT)});
 
-/* ===== 状態 ===== */
+/* ===== 状態ほか（元のまま） ===== */
 let playing=false, t0=0, dur=START_DUR, phase='toPlayer';
 let from={x:0,y:0}, to={x:0,y:0}, ctrl={x:0,y:0};
 let playerAim={x:0,y:0}, oppAim={x:0,y:0};
@@ -219,19 +243,13 @@ function setLeg(a,b){ from=a;to=b;t0=sec();
   const midx=(a.x+b.x)/2, curve=(b.x-a.x)*rnd(-CURVE_X,CURVE_X);
   ctrl={x:midx+curve, y:H*NET_Y - H*ARC_H*rnd(0.85,1.15)};
 }
-
-/* タイマー表示 */
 function fmtTime(v){ const s=Math.max(0,Math.floor(v)); return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
 function updateLvTime(){ lvline.textContent = `Lv.${level}　${fmtTime(sec()-startedAt)}`; }
-
-/* 判定ラベル */
 function showJudge(text,color,x,y){
   judgeText=text; judgeColor=color; judgeUntil=sec()+0.85;
   judgeEl.style.display='block'; judgeEl.textContent=text; judgeEl.style.color=color;
   judgeEl.style.left = (x-9999)+'px';
 }
-
-/* ===== リセット・開始・終了 ===== */
 function resetState(){
   score=0;combo=0;level=1;steps=0;dur=START_DUR;
   sc.textContent='Score 0';scs.innerHTML='&nbsp;';cm.textContent='Combo 0';cms.innerHTML='&nbsp;';
@@ -245,8 +263,6 @@ function gameOver(){
   if(score>best){best=score;localStorage.setItem('PT_best',best); bestInfo.textContent='Best '+best.toFixed(0); }
   F.innerHTML='Score '+score.toFixed(0)+'<br>Lv.'+level; O.style.display='flex';
 }
-
-/* ===== 入力 ===== */
 addEventListener('pointerdown', e=>{
   ac();
   if(!playing||phase!=='toPlayer') return;
@@ -268,7 +284,6 @@ addEventListener('pointerdown', e=>{
     phase='toOpponent'; oppAim=oppSpot(); setLeg(playerAim,oppAim);
   }else{cms.textContent='Miss!';showJudge('MISS!', '#ffb3b3', playerAim.x, playerAim.y-RING_BASE-12);gameOver();}
 },{passive:true});
-
 function ringRadiusNow(){ const p=Math.min(1,Math.max(0,(sec()-t0)/dur));
   return RING_BASE+RING_SHRINK*((phase==='toPlayer')?(1-p):1); }
 
@@ -285,7 +300,7 @@ function loop(){
   // 相手
   drawOpponent(now);
 
-  // ネット帯を白で塗ってから前景PNG
+  // ネット帯を白で埋め → 台PNG（台は下端基準で配置）
   drawForegroundWithBand();
 
   // 進行・ボール
@@ -313,32 +328,26 @@ function loop(){
 }
 requestAnimationFrame(loop);
 
-/* ===== 前景（ネット帯の自動位置合わせ＆白帯） ===== */
+/* ===== 前景（検出したネット帯を白塗り） ===== */
 function drawForegroundWithBand(){
   if(!A.fg) return;
-
-  const sBase=Math.min(W/BG_DES_W,H/BG_DES_H);
-  const s=sBase*FG_SCALE;
-
+  const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), s=sBase*FG_SCALE;
   const fw=A.fg.width*s, fh=A.fg.height*s;
   const fx=Math.round((W-fw)/2);
+  const fy=Math.round(H - fh + FG_Y_OFFSET*s);   // ← 上げない。下端基準
 
-  // ネット中央を NET_Y に合わせて縦位置を決める
+  // 検出に失敗したら既定値
   const nb = netBandNorm || {x:0.045,y:0.472,w:0.91,h:0.115};
-  const netMidNorm = nb.y + nb.h*0.5;
-  const fy = Math.round(H*NET_Y - netMidNorm*fh + FG_Y_OFFSET*s);
 
-  // 白帯（矩形全体を塗る）
-  const bx = fx + nb.x*fw;
-  const by = fy + nb.y*fh;
-  const bw = nb.w*fw;
-  const bh = nb.h*fh;
-  g.save();
-  g.fillStyle = '#fff';
-  g.fillRect(Math.round(bx),Math.round(by),Math.round(bw),Math.round(bh));
-  g.restore();
+  // 白帯
+  const bx = Math.round(fx + nb.x*fw);
+  const by = Math.round(fy + nb.y*fh);
+  const bw = Math.round(nb.w*fw);
+  const bh = Math.round(nb.h*fh);
+  g.fillStyle='#fff';
+  g.fillRect(bx,by,bw,bh);
 
-  // 前景を重ねる（にじみ防止でスムージングOFF）
+  // 前景
   const keep=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false;
   g.drawImage(A.fg,fx,fy,fw,fh);
   g.imageSmoothingEnabled=keep;
