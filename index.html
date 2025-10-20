@@ -2,9 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>PingTap — Retro Rally</title>
 
-<!-- スーファミっぽいドット系 -->
 <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
-
 <style>
   :root{
     --hud-bg: rgba(20,20,30,.55);
@@ -18,9 +16,7 @@
   body{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
   #cv{position:fixed;inset:0;touch-action:manipulation}
 
-  /* === HUD === */
-  .hud{position:fixed;left:10px;right:10px;
-       top:calc(10px + env(safe-area-inset-top,0px));
+  .hud{position:fixed;left:10px;right:10px;top:calc(10px + env(safe-area-inset-top,0px));
        display:grid;grid-template-columns:1fr 1fr;gap:10px;z-index:9;pointer-events:none}
   .pill{min-width:0;background:var(--hud-bg);backdrop-filter: blur(2px);
         border-radius:18px;padding:10px 14px;font-weight:900;letter-spacing:.2px}
@@ -30,32 +26,27 @@
   .wide{grid-column:1 / span 2; text-align:center}
   .wide b{color:var(--c-level)}
 
-  /* === カード === */
   .card{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
         background:rgba(0,0,0,.55);text-align:center;padding:18px;z-index:10}
-  .title{font:700 34px "DotGothic16",system-ui;letter-spacing:.6px;
-         text-shadow:0 3px 0 rgba(0,0,0,.6)}
+  .title{font:700 34px "DotGothic16",system-ui;letter-spacing:.6px;text-shadow:0 3px 0 rgba(0,0,0,.6)}
   .lead{font:700 20px "DotGothic16",system-ui;margin:.6em 0 1.0em 0}
   .desc{font:700 18px "DotGothic16",system-ui;opacity:.98;line-height:1.6}
   .btn{display:inline-grid;place-items:center;min-width:46px;height:46px;border-radius:18px;
        padding:0 18px;background:var(--accent);color:#222;font-weight:900;font-size:18px;border:0;
        box-shadow:0 4px 0 #caa132}
 
-  /* 判定ラベル（色付き） */
   .judge{position:fixed;left:0;top:0;pointer-events:none;z-index:8;
          font:700 16px "DotGothic16",system-ui;text-shadow:0 2px 0 rgba(0,0,0,.55)}
 </style>
 
 <canvas id="cv"></canvas>
 
-<!-- HUD：上段 Score / Combo、下段は横長で Lv & Timer -->
 <div class="hud">
   <div class="pill"><b id="sc">Score 0</b><small id="scsub">&nbsp;</small></div>
   <div class="pill"><b id="cm">Combo 0</b><small id="cmsub">&nbsp;</small></div>
   <div class="pill wide"><b id="lvline">Lv.1　0:00</b></div>
 </div>
 
-<!-- スタート（ベストはここで表示） -->
 <div class="card" id="start">
   <div class="title">レッツ！ピンポン！！</div>
   <div class="lead">ラリーを楽しもう</div>
@@ -65,20 +56,18 @@
   <button id="go" class="btn">スタート</button>
 </div>
 
-<!-- ゲームオーバー（2段固定） -->
 <div class="card" id="over" style="display:none">
   <div id="final" class="title" style="font-size:28px">Score 0<br>Lv.1</div>
   <button id="retry" class="btn">もう一回</button>
 </div>
 
-<!-- 判定ラベルをCanvas外で重ね描きするための要素 -->
 <div id="judge" class="judge" style="display:none">TAP!</div>
 
 <script>
 (()=>{
 /* ===== 画像 ===== */
-const BG_URL     = './F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png'; // 背景（台なし）
-const FG_URL     = './IMG_4406.png';                              // 台＋ネット前景
+const BG_URL     = './F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png';
+const FG_URL     = './IMG_4406.png';
 const OPP_IDLE   = './IMG_4414.png';
 const OPP_SWING  = './IMG_4413.png';
 const OPP_FOLLOW = './IMG_4412.png';
@@ -93,19 +82,16 @@ const SCORE_BASE=100, MULT_GOOD=1.00, MULT_GREAT=1.30, MULT_PERF=1.60;
 const COMBO_BONUS=0.15, DEMON_AT=90;
 const ARC_H=0.12, CURVE_X=0.10;
 
-/* スケール据え置き */
+/* レイアウト */
 const BG_DES_W=768, BG_DES_H=1152;
 let FG_SCALE=0.92, FG_Y_OFFSET=0;
 const OPP_BASE_SCALE=0.58*1.35, OPP_FOOT_Y=0.565;
 const BALL_FRONT=true;
 
-/* —— ネットの“穴”だけ塗るための矩形（前景画像に対する相対値） */
+/* ネット矩形（前景画像上の相対座標）*/
 const NET_RECT_NORM = { x:0.045, y:0.472, w:0.91, h:0.115 };
-/* ★ 要望どおり、下地の色を白に変更（ほか一切変更なし） */
-const TABLE_FILL  = '#ffffff';
-const TABLE_ALPHA = 1.0;
 
-/* ===== Canvas & DOM ===== */
+/* ===== Canvas / DOM ===== */
 const cv=document.getElementById('cv'), g=cv.getContext('2d');
 const S=document.getElementById('start'), O=document.getElementById('over');
 const go=document.getElementById('go'), retry=document.getElementById('retry');
@@ -126,10 +112,37 @@ addEventListener('resize',fit,{passive:true}); fit();
 function load(src){return new Promise(r=>{const i=new Image(); i.crossOrigin='anonymous';
   i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });}
 const A={bg:null,fg:null,oppIdle:null,oppSw:null,oppFo:null};
-Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)])
-  .then(([a,b,c,d,e])=>{A.bg=a;A.fg=b;A.oppIdle=c;A.oppSw=d;A.oppFo=e;});
+let netMask=null; // ← 穴だけ白で塗るマスク
 
-/* ===== オーディオ（前に鳴っていた方式そのまま） ===== */
+Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)])
+  .then(([a,b,c,d,e])=>{A.bg=a;A.fg=b;A.oppIdle=c;A.oppSw=d;A.oppFo=e; if(b) buildNetMask();});
+
+/* ===== ネット“穴”のピクセルだけ白で塗るマスクを作る ===== */
+function buildNetMask(){
+  const iw=A.fg.width, ih=A.fg.height;
+  const rx=Math.floor(NET_RECT_NORM.x*iw),
+        ry=Math.floor(NET_RECT_NORM.y*ih),
+        rw=Math.floor(NET_RECT_NORM.w*iw),
+        rh=Math.floor(NET_RECT_NORM.h*ih);
+
+  const srcC=document.createElement('canvas'); srcC.width=iw; srcC.height=ih;
+  const sctx=srcC.getContext('2d'); sctx.drawImage(A.fg,0,0);
+  const src=sctx.getImageData(rx,ry,rw,rh).data;
+
+  const mC=document.createElement('canvas'); mC.width=iw; mC.height=ih;
+  const mctx=mC.getContext('2d'); const out=mctx.createImageData(rw,rh); const odata=out.data;
+
+  // 透明(α<32)なピクセルだけ白で塗る
+  for(let i=0;i<rw*rh;i++){
+    const a=src[i*4+3];
+    if(a<32){ odata[i*4+0]=255; odata[i*4+1]=255; odata[i*4+2]=255; odata[i*4+3]=255; }
+    else    { odata[i*4+3]=0; }
+  }
+  mctx.putImageData(out,rx,ry);
+  netMask=mC;
+}
+
+/* ===== オーディオ ===== */
 let AC=null, master=null, bgm={timer:null,lead:null,bass:null,lg:null,bg:null};
 function ac(){ if(!AC){ AC=new (window.AudioContext||window.webkitAudioContext)();
   master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination); }
@@ -148,8 +161,7 @@ function sePock(){ ac();
   n.connect(g2).connect(master); n.start(); n.stop(AC.currentTime+0.07);
 }
 function startBGM(){ ac(); stopBGM();
-  const leadSeq=[0,2,4,5,7,5,4,2];    // 8分刻みの軽いループ
-  const baseA=440, bassDiv=4, tempo=124, stepMs=60000/tempo/2;
+  const leadSeq=[0,2,4,5,7,5,4,2]; const baseA=440, bassDiv=4, tempo=124, stepMs=60000/tempo/2;
   bgm.lead=AC.createOscillator(); bgm.lg=AC.createGain();
   bgm.bass=AC.createOscillator(); bgm.bg=AC.createGain();
   bgm.lead.type='square'; bgm.bass.type='triangle';
@@ -193,13 +205,11 @@ function setLeg(a,b){ from=a;to=b;t0=sec();
 function fmtTime(v){ const s=Math.max(0,Math.floor(v)); return `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`; }
 function updateLvTime(){ lvline.textContent = `Lv.${level}　${fmtTime(sec()-startedAt)}`; }
 
-/* 判定ラベル（色付き） */
+/* 判定ラベル */
 function showJudge(text,color,x,y){
   judgeText=text; judgeColor=color; judgeUntil=sec()+0.85;
-  judgeEl.style.display='block';
-  judgeEl.textContent=text;
-  judgeEl.style.color=color;
-  judgeEl.style.left = (x-9999)+'px'; // 位置更新は drawGuide 内で
+  judgeEl.style.display='block'; judgeEl.textContent=text; judgeEl.style.color=color;
+  judgeEl.style.left = (x-9999)+'px';
 }
 
 /* ===== リセット・開始・終了 ===== */
@@ -214,13 +224,12 @@ function startGame(){ ac(); startBGM(); resetState(); S.style.display='none'; O.
 function gameOver(){
   playing=false; stopBGM();
   if(score>best){best=score;localStorage.setItem('PT_best',best); bestInfo.textContent='Best '+best.toFixed(0); }
-  F.innerHTML='Score '+score.toFixed(0)+'<br>Lv.'+level;
-  O.style.display='flex';
+  F.innerHTML='Score '+score.toFixed(0)+'<br>Lv.'+level; O.style.display='flex';
 }
 
 /* ===== 入力 ===== */
 addEventListener('pointerdown', e=>{
-  ac(); // iOS: どのタップでもContextを解錠
+  ac();
   if(!playing||phase!=='toPlayer') return;
   const r=cv.getBoundingClientRect(); const x=(e.clientX??e.touches?.[0]?.clientX)-r.left;
   const y=(e.clientY??e.touches?.[0]?.clientY)-r.top;
@@ -257,21 +266,15 @@ function loop(){
   // 相手
   drawOpponent(now);
 
-  // 台＋ネット（ネット矩形だけ下塗り→前景）
+  // ネットの穴“だけ”白で埋め → 前景
   drawForegroundWithOccluder();
 
   // 進行・ボール
   if(playing){
     const p=Math.min(1,(now-t0)/dur);
     const bx=bez(p,from.x,ctrl.x,to.x), by=bez(p,from.y,ctrl.y,to.y);
-
-    // 相手が打つ瞬間のSE
     if(phase==='toOpponent' && p>0.64 && p<0.66){ sePock(); }
-
-    if(p>=1){
-      if(phase==='toPlayer'){ gameOver(); }
-      else { phase='toPlayer'; playerAim=plySpot(); setLeg(oppAim,playerAim); }
-    }
+    if(p>=1){ if(phase==='toPlayer'){ gameOver(); } else { phase='toPlayer'; playerAim=plySpot(); setLeg(oppAim,playerAim); } }
 
     const rr=ringRadiusNow();
     drawGuide(playerAim.x,playerAim.y,rr,true,(judgeUntil>now)?judgeText:'TAP!', judgeColor);
@@ -291,25 +294,17 @@ function loop(){
 }
 requestAnimationFrame(loop);
 
-/* ===== 前景（ネットだけ下塗り → 画像を重ねる） ===== */
+/* ===== 前景（マスク → 前景PNG） ===== */
 function drawForegroundWithOccluder(){
   if(!A.fg) return;
   const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), s=sBase*FG_SCALE;
   const fw=A.fg.width*s, fh=A.fg.height*s;
   const fx=Math.round((W-fw)/2), fy=Math.round(H-fh+FG_Y_OFFSET*s);
 
-  // ネット矩形のスクリーン座標
-  const nx=fx + NET_RECT_NORM.x*fw;
-  const ny=fy + NET_RECT_NORM.y*fh;
-  const nw=NET_RECT_NORM.w*fw;
-  const nh=NET_RECT_NORM.h*fh;
-
-  // 下塗り（ネット穴だけ・畳には触らない）— 色は白
-  g.save();
-  g.beginPath(); g.rect(nx, ny, nw, nh); g.clip();
-  g.globalAlpha=TABLE_ALPHA; g.fillStyle=TABLE_FILL;
-  g.fillRect(nx, ny, nw, nh);
-  g.restore();
+  // 穴だけ白：マスクを前景と同じスケールで貼る
+  if(netMask){
+    g.drawImage(netMask, fx, fy, fw, fh);
+  }
 
   // 前景（台＋ネット）
   const keep=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false;
@@ -331,29 +326,20 @@ function drawOpponent(now){
   g.imageSmoothingEnabled=keep; g.restore();
 }
 
-/* ===== ガイド（自分だけ） ===== */
+/* ===== ガイド ===== */
 function drawGuide(x,y,rr,isPlayer,label,labelColor='#ffe38a'){
-  // 固定円
   g.beginPath(); g.lineWidth=3; g.setLineDash([]);
   g.strokeStyle=isPlayer?'var(--ringP)':'var(--ringO)'; g.arc(x,y,RING_BASE,0,Math.PI*2); g.stroke();
-  // 伸縮円
   g.beginPath(); g.lineWidth=3; g.setLineDash(isPlayer?[6,6]:[]);
   g.strokeStyle=isPlayer?'var(--ringP)':'var(--ringO)'; g.arc(x,y,rr,0,Math.PI*2); g.stroke(); g.setLineDash([]);
-
-  // ラベル（色付き）
-  const lx = x, ly = y-RING_BASE-12;
-  g.fillStyle=labelColor; g.font='700 16px DotGothic16, system-ui'; g.textAlign='center';
-  g.fillText(label, lx, ly);
-
-  // HTML要素の座標も合わせておく（影響はないが将来の演出用）
-  judgeEl.style.transform = `translate(${lx-18}px, ${ly-18}px)`;
+  const lx=x, ly=y-RING_BASE-12;
+  g.fillStyle=labelColor; g.font='700 16px DotGothic16, system-ui'; g.textAlign='center'; g.fillText(label, lx, ly);
+  judgeEl.style.transform=`translate(${lx-18}px, ${ly-18}px)`;
 }
 
 /* ===== UI ===== */
 go.onclick=()=>{ startGame(); };
 retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; };
-
-/* 最初のタップで確実に音を解錠 */
 window.addEventListener('pointerdown', ()=>ac(), {once:true, passive:true});
 })();
 </script>
