@@ -13,10 +13,9 @@
     --c-level:#FFFFFF;
   }
   html,body{margin:0;height:100%;background:#091427;color:#fff}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","DotGothic16",sans-serif}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
   #cv{position:fixed;inset:0;touch-action:manipulation}
 
-  /* ===== HUD ===== */
   .hud{position:fixed;left:10px;right:10px;top:calc(10px + env(safe-area-inset-top,0px));
        display:grid;grid-template-columns:1fr 1fr;gap:10px;z-index:9;pointer-events:none}
   .pill{min-width:0;background:var(--hud-bg);backdrop-filter: blur(2px);
@@ -27,59 +26,44 @@
   .wide{grid-column:1 / span 2; text-align:center}
   .wide b{color:var(--c-level)}
 
-  /* ===== スタート/ゲームオーバー ===== */
+  /* ====== スタート／ゲームオーバー（SNES風を強める・色味だけ強化） ====== */
   .card{
     position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    z-index:10;text-align:center;padding:18px;pointer-events:auto;
-    /* ポップな放射グラ + 透過 */
+    text-align:center;padding:18px;z-index:10;overflow:hidden;
     background:
-     radial-gradient(160% 120% at 50% 10%, rgba(255,224,122,.35), rgba(255,140,180,.18) 40%, rgba(0,0,0,.60) 70%);
-    backdrop-filter:saturate(1.25) blur(0.5px);
+      radial-gradient(120% 90% at 50% 10%, rgba(255,228,138,.35), rgba(255,132,100,.12) 55%, rgba(0,0,0,.55) 70%);
+  }
+  .card::before{ /* ほのかな走査線でレトロ感 */
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(to bottom, rgba(255,255,255,.05), rgba(255,255,255,.05) 2px, rgba(0,0,0,0) 2px, rgba(0,0,0,0) 4px);
+    mix-blend-mode:overlay;
   }
   .title{
-    font:900 40px "DotGothic16",system-ui;letter-spacing:.6px;margin-bottom:8px;
-    /* グラデ文字＋外側グロー */
-    background:linear-gradient(180deg,#fff 0%,#ffe57a 55%,#ffb84d 100%);
-    -webkit-background-clip:text;background-clip:text;color:transparent;
-    text-shadow:0 3px 0 rgba(0,0,0,.55), 0 0 16px rgba(255,210,90,.35);
-    animation: pop 1.6s ease-in-out infinite;
+    font:700 34px "DotGothic16",system-ui;letter-spacing:.6px;
+    color:#fff;
+    text-shadow:
+      0 0 0 #1a0,                           /* ドットの縁取り風(下の影で縁) */
+      0 2px 0 rgba(0,0,0,.55),
+      0 0 18px rgba(255,215,120,.35);        /* ほんのりグロー */
   }
-  @keyframes pop{
-    0%,100%{transform:translateY(0) scale(1)}
-    50%{transform:translateY(-2px) scale(1.02)}
-  }
-  .lead{font:700 20px "DotGothic16",system-ui;margin:.6em 0 1.0em 0;
-        text-shadow:0 2px 0 rgba(0,0,0,.45)}
-  .desc{font:700 18px "DotGothic16",system-ui;opacity:.98;line-height:1.6;
-        text-shadow:0 2px 0 rgba(0,0,0,.45)}
-  .btn{
-    display:inline-grid;place-items:center;min-width:46px;height:46px;border-radius:18px;
-    padding:0 18px;background:var(--accent);color:#222;font-weight:900;font-size:18px;border:0;
-    box-shadow:0 6px 0 #caa132, 0 0 18px rgba(255,210,90,.45); transform:translateY(0);
-    transition:.1s transform;
-  }
-  .btn:active{transform:translateY(2px)}
+  .lead{font:700 20px "DotGothic16",system-ui;margin:.6em 0 1.0em 0;text-shadow:0 2px 0 rgba(0,0,0,.45)}
+  .desc{font:700 18px "DotGothic16",system-ui;opacity:.98;line-height:1.6;text-shadow:0 2px 0 rgba(0,0,0,.45)}
+  .btn{display:inline-grid;place-items:center;min-width:46px;height:46px;border-radius:18px;
+       padding:0 18px;background:var(--accent);color:#222;font-weight:900;font-size:18px;border:0;
+       box-shadow:0 4px 0 #caa132, 0 0 16px rgba(255,210,90,.35)}
 
-  /* 判定ラベル（Canvas外で重畳表示用だが見た目は最小限） */
   .judge{position:fixed;left:0;top:0;pointer-events:none;z-index:8;
          font:700 16px "DotGothic16",system-ui;text-shadow:0 2px 0 rgba(0,0,0,.55)}
-
-  /* 小さめ端末でタイトルがはみ出さないよう縮小 */
-  @media (max-width:360px){
-    .title{font-size:34px}
-  }
 </style>
 
 <canvas id="cv"></canvas>
 
-<!-- HUD -->
 <div class="hud">
   <div class="pill"><b id="sc">Score 0</b><small id="scsub">&nbsp;</small></div>
   <div class="pill"><b id="cm">Combo 0</b><small id="cmsub">&nbsp;</small></div>
   <div class="pill wide"><b id="lvline">Lv.1　0:00</b></div>
 </div>
 
-<!-- スタート -->
 <div class="card" id="start">
   <div class="title">レッツ！ピンポン！！</div>
   <div class="lead">ラリーを楽しもう</div>
@@ -87,10 +71,8 @@
   <div class="desc" style="margin-bottom:12px">Perfect / Great / Good で加点＆コンボ。<br>90秒で<strong>激ムズ</strong>モード。</div>
   <div class="desc" id="bestInfo" style="margin-bottom:14px"></div>
   <button id="go" class="btn">スタート</button>
-  <div class="desc" style="margin-top:10px;opacity:.9">画面に触れるとサウンドが有効になります♪</div>
 </div>
 
-<!-- ゲームオーバー -->
 <div class="card" id="over" style="display:none">
   <div id="final" class="title" style="font-size:28px">Score 0<br>Lv.1</div>
   <button id="retry" class="btn">もう一回</button>
@@ -102,12 +84,12 @@
 (()=>{
 /* ===== 画像 ===== */
 const BG_URL     = './F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png';
-const FG_URL     = './IMG_4465.png';      // ← 新しい台
+const FG_URL     = './IMG_4465.png';   // 新しい台（触らない）
 const OPP_IDLE   = './IMG_4414.png';
 const OPP_SWING  = './IMG_4413.png';
 const OPP_FOLLOW = './IMG_4412.png';
 
-/* ===== パラメータ ===== */
+/* ===== パラメータ（触らない） ===== */
 const NET_Y=0.595, Y_PLAYER=0.115, Y_OPP=0.085, X_MARGIN=0.16, Y_JIT=0.018;
 const START_DUR=1.00, SPEEDUP_EVERY=2, SPEEDUP_RATE=0.93, MIN_DUR=0.46;
 const RING_BASE=28, RING_SHRINK=36;
@@ -116,10 +98,8 @@ const TOL_TIME_GOOD=12, TOL_TIME_GREAT=7, TOL_TIME_PERF=3;
 const SCORE_BASE=100, MULT_GOOD=1.00, MULT_GREAT=1.30, MULT_PERF=1.60;
 const COMBO_BONUS=0.15, DEMON_AT=90;
 const ARC_H=0.12, CURVE_X=0.10;
-
-/* レイアウト（台のサイズ・位置） */
 const BG_DES_W=768, BG_DES_H=1152;
-let FG_SCALE=0.885, FG_Y_OFFSET=0;          // ← 調整済み
+let FG_SCALE=0.82, FG_Y_OFFSET=0;     // 元の指定を保持
 const OPP_BASE_SCALE=0.58*1.35, OPP_FOOT_Y=0.565;
 const BALL_FRONT=true;
 
@@ -144,51 +124,84 @@ addEventListener('resize',fit,{passive:true}); fit();
 function load(src){return new Promise(r=>{const i=new Image(); i.crossOrigin='anonymous';
   i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });}
 const A={bg:null,fg:null,oppIdle:null,oppSw:null,oppFo:null};
-Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)])
-  .then(([a,b,c,d,e])=>{A.bg=a;A.fg=b;A.oppIdle=c;A.oppSw=d;A.oppFo=e;});
+let netBandNorm=null;
 
-/* ===== オーディオ（常時ループ + 速度連動） ===== */
-let AC=null, master=null;
-const bgm={
-  timer:null, lead:null, bass:null, lg:null, bg:null,
-  baseTempo:124, mult:1.0, stepIdx:0, seq:[0,2,4,5,7,5,4,2]
-};
-function ac(){
-  if(!AC){
-    AC=new (window.AudioContext||window.webkitAudioContext)();
-    master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination);
+Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)])
+  .then(([a,b,c,d,e])=>{
+    A.bg=a;A.fg=b;A.oppIdle=c;A.oppSw=d;A.oppFo=e;
+    if(b) detectNetBand(b);
+  });
+
+/* ===== ネット帯自動検出（そのまま） ===== */
+function detectNetBand(img){
+  const iw=img.width, ih=img.height;
+  const off=document.createElement('canvas'); off.width=iw; off.height=ih;
+  const ctx=off.getContext('2d'); ctx.drawImage(img,0,0);
+  const data=ctx.getImageData(0,0,iw,ih).data;
+
+  const xL=Math.floor(iw*0.08), xR=Math.floor(iw*0.92);
+  let yTopObj=ih, yBotObj=0;
+  for(let y=0;y<ih;y++){
+    let has=false;
+    for(let x=xL;x<=xR;x+=2){
+      if(data[(y*iw+x)*4+3]>16){ has=true; break; }
+    }
+    if(has){ yTopObj=Math.min(yTopObj,y); yBotObj=Math.max(yBotObj,y); }
   }
-  if(AC.state!=='running') AC.resume();
+  if(yTopObj>=yBotObj){ netBandNorm={x:0.045,y:0.472,w:0.91,h:0.115}; return; }
+
+  const yA = yTopObj;
+  const yB = Math.floor(yTopObj + (yBotObj-yTopObj)*0.35);
+  const transRatio=new Float32Array(ih).fill(0);
+  for(let y=yA; y<=yB; y++){
+    let L=-1, R=-1;
+    for(let x=xL;x<=xR;x++){ if(data[(y*iw+x)*4+3]>16){ L=x; break; } }
+    for(let x=xR;x>=xL;x--){ if(data[(y*iw+x)*4+3]>16){ R=x; break; } }
+    if(L>=0 && R>L){
+      let tot=0, hole=0;
+      for(let x=L;x<=R;x++){ const a=data[(y*iw+x)*4+3]; if(a<=16) hole++; tot++; }
+      transRatio[y]=hole/Math.max(1,tot);
+    }
+  }
+  let yPeak=yA, vPeak=0;
+  for(let y=yA;y<=yB;y++) if(transRatio[y]>vPeak){vPeak=transRatio[y]; yPeak=y;}
+  if(vPeak<0.1){ netBandNorm={x:0.045,y:0.472,w:0.91,h:0.115}; return; }
+  const thr=vPeak*0.45; let y1=yPeak, y2=yPeak;
+  while(y1>yA && transRatio[y1-1]>thr) y1--;
+  while(y2<yB && transRatio[y2+1]>thr) y2++;
+  const rx=Math.floor(iw*0.05), rw=Math.floor(iw*0.90);
+  const ry=Math.max(0,y1-2), rh=Math.min(ih-ry,(y2-y1)+4);
+  netBandNorm={x:rx/iw,y:ry/ih,w:rw/iw,h:rh/ih};
 }
-function startBGM(){              // 既に再生中なら何もしない
+
+/* ===== オーディオ（改修：常時ループ + レベル連動テンポ / 終了で初期化） ===== */
+let AC=null, master=null;
+const music={lead:null,bass:null,lg:null,bg:null,baseTempo:124,mult:1.0,step:0,timer:null,seq:[0,2,4,5,7,5,4,2]};
+function ac(){ if(!AC){ AC=new (window.AudioContext||window.webkitAudioContext)(); master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination); }
+  if(AC.state!=='running') AC.resume(); }
+function startBGM(){
   ac();
-  if(bgm.lead) return;
-  bgm.lead=AC.createOscillator(); bgm.lg=AC.createGain();
-  bgm.bass=AC.createOscillator(); bgm.bg=AC.createGain();
-  bgm.lead.type='square'; bgm.bass.type='triangle';
-  bgm.lg.gain.value=0.06; bgm.bg.gain.value=0.05;
-  bgm.lead.connect(bgm.lg).connect(master);
-  bgm.bass.connect(bgm.bg).connect(master);
-  bgm.lead.start(); bgm.bass.start();
-  bgm.stepIdx=0;
-  scheduleBGM();                  // タイマー起動
+  if(music.lead) return;            // すでに鳴っている
+  music.lead=AC.createOscillator(); music.bass=AC.createOscillator();
+  music.lg=AC.createGain(); music.bg=AC.createGain();
+  music.lead.type='square'; music.bass.type='triangle';
+  music.lg.gain.value=0.06; music.bg.gain.value=0.05;
+  music.lead.connect(music.lg).connect(master);
+  music.bass.connect(music.bg).connect(master);
+  music.lead.start(); music.bass.start();
+  music.step=0; scheduleBGM();
 }
 function scheduleBGM(){
-  if(bgm.timer){ clearInterval(bgm.timer); bgm.timer=null; }
-  const stepMs=(60000/bgm.baseTempo/2)/bgm.mult;  // 8分音符単位
-  bgm.timer=setInterval(()=>{
+  if(music.timer){ clearInterval(music.timer); music.timer=null; }
+  const stepMs=(60000/music.baseTempo/2)/music.mult; // 8分音符
+  music.timer=setInterval(()=>{
     if(AC && AC.state!=='running') AC.resume();
-    const baseA=440, k=bgm.stepIdx++, deg=bgm.seq[k%bgm.seq.length];
-    const fLead=baseA*Math.pow(2,deg/12);
-    const fBass=(baseA/4)*Math.pow(2,((k%4)*2)/12);
-    if(bgm.lead){ bgm.lead.frequency.setValueAtTime(fLead,AC.currentTime); }
-    if(bgm.bass){ bgm.bass.frequency.setValueAtTime(fBass,AC.currentTime); }
+    const baseA=440, k=music.step++, deg=music.seq[k%music.seq.length];
+    if(music.lead) music.lead.frequency.setValueAtTime(baseA*Math.pow(2,deg/12), AC.currentTime);
+    if(music.bass) music.bass.frequency.setValueAtTime((baseA/4)*Math.pow(2,((k%4)*2)/12), AC.currentTime);
   }, stepMs);
 }
-function setBgmSpeedMultiplier(m){         // 0.5〜3.0の範囲で
-  bgm.mult=Math.max(0.5,Math.min(3.0,m));
-  if(bgm.lead) scheduleBGM();              // 走行中ならテンポ更新
-}
+function setTempoMultiplier(m){ music.mult=Math.max(0.5,Math.min(3,m)); if(music.lead) scheduleBGM(); }
 function sePock(){ ac();
   const o=AC.createOscillator(), g1=AC.createGain();
   o.type='sine'; o.frequency.setValueAtTime(1350,AC.currentTime);
@@ -213,7 +226,7 @@ let playing=false, t0=0, dur=START_DUR, phase='toPlayer';
 let from={x:0,y:0}, to={x:0,y:0}, ctrl={x:0,y:0};
 let playerAim={x:0,y:0}, oppAim={x:0,y:0};
 let score=0, combo=0, best=Number(localStorage.getItem('PT_best')||0), level=1, steps=0, startedAt=0;
-let judgeText='', judgeUntil=0, judgeColor='#aee1ff';
+let judgeText='', judgeUntil=0, judgeColor='#ffe38a';
 bestInfo.textContent='Best '+best.toFixed(0);
 const bez=(p,a,c,b)=>{const u=1-p; return u*u*a+2*u*p*c+p*p*b;}
 function setLeg(a,b){ from=a;to=b;t0=sec();
@@ -229,6 +242,7 @@ function updateLvTime(){ lvline.textContent = `Lv.${level}　${fmtTime(sec()-sta
 function showJudge(text,color,x,y){
   judgeText=text; judgeColor=color; judgeUntil=sec()+0.85;
   judgeEl.style.display='block'; judgeEl.textContent=text; judgeEl.style.color=color;
+  judgeEl.style.left = (x-9999)+'px';
 }
 
 /* ===== リセット・開始・終了 ===== */
@@ -238,25 +252,25 @@ function resetState(){
   playerAim=plySpot(); oppAim=oppSpot(); phase='toPlayer'; startedAt=sec();
   updateLvTime();
   setLeg(oppAim,playerAim); judgeUntil=0; judgeEl.style.display='none';
-  setBgmSpeedMultiplier(1.0);      // 音は止めずテンポだけ初期化
+  setTempoMultiplier(1.0);                 // BGMは止めずテンポだけ初期化
 }
-function startGame(){ ac(); resetState(); S.style.display='none'; O.style.display='none'; playing=true; }
+function startGame(){ ac(); startBGM(); resetState(); S.style.display='none'; O.style.display='none'; playing=true; }
 function gameOver(){
   playing=false;
+  // ★BGMは止めない。テンポのみ元に戻す
+  setTempoMultiplier(1.0);
   if(score>best){best=score;localStorage.setItem('PT_best',best); bestInfo.textContent='Best '+best.toFixed(0); }
   F.innerHTML='Score '+score.toFixed(0)+'<br>Lv.'+level; O.style.display='flex';
-  setBgmSpeedMultiplier(1.0);      // 元のテンポへ戻す（BGMは継続）
 }
 
 /* ===== 入力 ===== */
 addEventListener('pointerdown', e=>{
-  // iOSのオーディオ解錠＆BGM開始（初回タップ時のみ）
-  if(!bgm.lead){ startBGM(); }
+  ac(); startBGM();                     // 初回タップで常時ループ開始
   if(!playing||phase!=='toPlayer') return;
   const r=cv.getBoundingClientRect(); const x=(e.clientX??e.touches?.[0]?.clientX)-r.left;
   const y=(e.clientY??e.touches?.[0]?.clientY)-r.top;
   const rr=ringRadiusNow(), dt=Math.abs(rr-RING_BASE), d=Math.hypot(x-playerAim.x,y-playerAim.y);
-  let mult=0, tag='', col='#aee1ff';
+  let mult=0, tag='', col='#ffe38a';
   if(dt<=TOL_TIME_PERF && d<=TOL_DIST_PERF){mult=MULT_PERF;tag='PERFECT!';col='#ff6b6b';}
   else if(dt<=TOL_TIME_GREAT && d<=TOL_DIST_GREAT){mult=MULT_GREAT;tag='GREAT!';col='#7cd1ff';}
   else if(dt<=TOL_TIME_GOOD && d<=TOL_DIST_GOOD){mult=MULT_GOOD;tag='GOOD!'; col='#ffe38a';}
@@ -269,8 +283,7 @@ addEventListener('pointerdown', e=>{
     if(steps%SPEEDUP_EVERY===0){
       const rate=(sec()-startedAt>=DEMON_AT)?0.90:SPEEDUP_RATE;
       dur=Math.max(MIN_DUR,dur*rate); level++; updateLvTime();
-      // レベル連動でBGMも速く
-      setBgmSpeedMultiplier(1 + 0.06*(level-1));  // 上げ幅はお好みで
+      setTempoMultiplier(1 + 0.06*(level-1));   // ★レベル連動でテンポUP
     }
     phase='toOpponent'; oppAim=oppSpot(); setLeg(playerAim,oppAim);
   }else{cms.textContent='Miss!';showJudge('MISS!', '#ffb3b3', playerAim.x, playerAim.y-RING_BASE-12);gameOver();}
@@ -289,11 +302,11 @@ function loop(){
   }else{ const grad=g.createLinearGradient(0,0,0,H); grad.addColorStop(0,'#1a315d'); grad.addColorStop(1,'#0b1631');
     g.fillStyle=grad; g.fillRect(0,0,W,H); }
 
-  // 相手（背景の上）
+  // 相手
   drawOpponent(now);
 
-  // 台（前景PNGそのまま）
-  drawForeground();
+  // ネット帯を白で埋め → 台PNG（台は下端基準で配置）
+  drawForegroundWithBand();
 
   // 進行・ボール
   if(playing){
@@ -320,13 +333,23 @@ function loop(){
 }
 requestAnimationFrame(loop);
 
-/* ===== 前景（台） ===== */
-function drawForeground(){
+/* ===== 前景（検出したネット帯を白塗り） ===== */
+function drawForegroundWithBand(){
   if(!A.fg) return;
   const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), s=sBase*FG_SCALE;
-  const w=A.fg.width*s, h=A.fg.height*s, x=Math.round((W-w)/2), y=Math.round(H-h+FG_Y_OFFSET*s);
+  const fw=A.fg.width*s, fh=A.fg.height*s;
+  const fx=Math.round((W-fw)/2);
+  const fy=Math.round(H - fh + FG_Y_OFFSET*s);
+
+  const nb = netBandNorm || {x:0.045,y:0.472,w:0.91,h:0.115};
+  const bx = Math.round(fx + nb.x*fw);
+  const by = Math.round(fy + nb.y*fh);
+  const bw = Math.round(nb.w*fw);
+  const bh = Math.round(nb.h*fh);
+  g.fillStyle='#fff'; g.fillRect(bx,by,bw,bh);
+
   const keep=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false;
-  g.drawImage(A.fg,x,y,w,h); g.imageSmoothingEnabled=keep;
+  g.drawImage(A.fg,fx,fy,fw,fh); g.imageSmoothingEnabled=keep;
 }
 
 /* ===== 相手 ===== */
@@ -345,20 +368,18 @@ function drawOpponent(now){
 }
 
 /* ===== ガイド ===== */
-function drawGuide(x,y,rr,isPlayer,label,labelColor='#aee1ff'){
+function drawGuide(x,y,rr,isPlayer,label,labelColor='#ffe38a'){
   g.beginPath(); g.lineWidth=3; g.setLineDash([]);
   g.strokeStyle=isPlayer?'var(--ringP)':'var(--ringO)'; g.arc(x,y,RING_BASE,0,Math.PI*2); g.stroke();
   g.beginPath(); g.lineWidth=3; g.setLineDash(isPlayer?[6,6]:[]);
   g.strokeStyle=isPlayer?'var(--ringP)':'var(--ringO)'; g.arc(x,y,rr,0,Math.PI*2); g.stroke(); g.setLineDash([]);
   const lx=x, ly=y-RING_BASE-12;
   g.fillStyle=labelColor; g.font='700 16px DotGothic16, system-ui'; g.textAlign='center'; g.fillText(label, lx, ly);
+  judgeEl.style.transform=`translate(${lx-18}px, ${ly-18}px)`;
 }
 
 /* ===== UI ===== */
 go.onclick=()=>{ startGame(); };
 retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; };
-
-/* 最初のタップで確実にサウンド解錠＆BGM開始（以後ずっとループ） */
-window.addEventListener('pointerdown', ()=>{ if(!bgm.lead){ startBGM(); } }, {once:true, passive:true});
 })();
 </script>
