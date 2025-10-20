@@ -67,7 +67,7 @@
 (()=>{
 /* ===== 画像 ===== */
 const BG_URL     = './F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png';
-const FG_URL     = './IMG_4465.png';   // ←台＋ネットPNG（そのまま）
+const FG_URL     = './IMG_4465.png';   // ← 新しい台PNGに差し替え
 const OPP_IDLE   = './IMG_4414.png';
 const OPP_SWING  = './IMG_4413.png';
 const OPP_FOLLOW = './IMG_4412.png';
@@ -82,7 +82,11 @@ const SCORE_BASE=100, MULT_GOOD=1.00, MULT_GREAT=1.30, MULT_PERF=1.60;
 const COMBO_BONUS=0.15, DEMON_AT=90;
 const ARC_H=0.12, CURVE_X=0.10;
 const BG_DES_W=768, BG_DES_H=1152;
-let FG_SCALE=0.92, FG_Y_OFFSET=0;
+
+/* ★台を小さく */
+let FG_SCALE=0.86;  // 0.84〜0.88で好みに微調整
+let FG_Y_OFFSET=0;
+
 const OPP_BASE_SCALE=0.58*1.35, OPP_FOOT_Y=0.565;
 const BALL_FRONT=true;
 
@@ -129,11 +133,11 @@ function buildNetMask(){
   const mC=document.createElement('canvas'); mC.width=iw; mC.height=ih;
   const mctx=mC.getContext('2d'); const out=mctx.createImageData(rw,rh); const o=out.data;
 
-  const THRESH=250; // ← しきい値を高くして半透明も白で埋める
+  const THRESH=250; // しきい値高め＝半透明も白で埋める
   for(let i=0;i<rw*rh;i++){
     const a=src[i*4+3];
-    if(a<THRESH){ o[i*4+0]=255; o[i*4+1]=255; o[i*4+2]=255; o[i*4+3]=255; } // 白・不透明
-    else        { o[i*4+3]=0; } // そのまま
+    if(a<THRESH){ o[i*4+0]=255; o[i*4+1]=255; o[i*4+2]=255; o[i*4+3]=255; }
+    else        { o[i*4+3]=0; }
   }
   mctx.putImageData(out,rx,ry);
   netMask=mC;
@@ -291,14 +295,24 @@ function loop(){
 }
 requestAnimationFrame(loop);
 
-/* ===== 前景（マスク → 前景PNG） ===== */
+/* ===== 前景（マスク → 前景PNG） =====
+   ★ネット中央が常に NET_Y に一致するように配置する */
 function drawForegroundWithOccluder(){
   if(!A.fg) return;
-  const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), s=sBase*FG_SCALE;
-  const fw=A.fg.width*s, fh=A.fg.height*s;
-  const fx=Math.round((W-fw)/2), fy=Math.round(H-fh+FG_Y_OFFSET*s);
 
-  // ★穴だけ白：スムージングOFFで貼る
+  const sBase = Math.min(W/BG_DES_W, H/BG_DES_H);
+  const s     = sBase * FG_SCALE;
+
+  const fw = A.fg.width  * s;
+  const fh = A.fg.height * s;
+
+  const fx = Math.round((W - fw) / 2);
+
+  // ネット矩形の“中央”を画面座標 H*NET_Y に合わせる
+  const netMidNorm = NET_RECT_NORM.y + NET_RECT_NORM.h * 0.5;
+  const fy = Math.round(H * NET_Y - netMidNorm * fh + FG_Y_OFFSET*s);
+
+  // 穴だけ白（スムージングOFF）
   if(netMask){
     const keep=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false;
     g.drawImage(netMask, fx, fy, fw, fh);
@@ -307,7 +321,8 @@ function drawForegroundWithOccluder(){
 
   // 前景（台＋ネット）
   const keep2=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false;
-  g.drawImage(A.fg,fx,fy,fw,fh); g.imageSmoothingEnabled=keep2;
+  g.drawImage(A.fg,fx,fy,fw,fh);
+  g.imageSmoothingEnabled=keep2;
 }
 
 /* ===== 相手 ===== */
