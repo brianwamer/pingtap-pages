@@ -67,12 +67,12 @@
 (()=>{
 /* ===== 画像 ===== */
 const BG_URL     = './F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png';
-const FG_URL     = './IMG_4406.png';
+const FG_URL     = './IMG_4406.png';   // ←台＋ネットPNG（そのまま）
 const OPP_IDLE   = './IMG_4414.png';
 const OPP_SWING  = './IMG_4413.png';
 const OPP_FOLLOW = './IMG_4412.png';
 
-/* ===== パラメータ ===== */
+/* ===== パラメータ（元のまま） ===== */
 const NET_Y=0.595, Y_PLAYER=0.115, Y_OPP=0.085, X_MARGIN=0.16, Y_JIT=0.018;
 const START_DUR=1.00, SPEEDUP_EVERY=2, SPEEDUP_RATE=0.93, MIN_DUR=0.46;
 const RING_BASE=28, RING_SHRINK=36;
@@ -81,17 +81,14 @@ const TOL_TIME_GOOD=12, TOL_TIME_GREAT=7, TOL_TIME_PERF=3;
 const SCORE_BASE=100, MULT_GOOD=1.00, MULT_GREAT=1.30, MULT_PERF=1.60;
 const COMBO_BONUS=0.15, DEMON_AT=90;
 const ARC_H=0.12, CURVE_X=0.10;
-
-/* レイアウト */
 const BG_DES_W=768, BG_DES_H=1152;
 let FG_SCALE=0.92, FG_Y_OFFSET=0;
 const OPP_BASE_SCALE=0.58*1.35, OPP_FOOT_Y=0.565;
 const BALL_FRONT=true;
 
-/* ネット矩形（前景画像上の相対座標）*/
+/* ネット矩形（前景PNG内の相対座標） */
 const NET_RECT_NORM = { x:0.045, y:0.472, w:0.91, h:0.115 };
 
-/* ===== Canvas / DOM ===== */
 const cv=document.getElementById('cv'), g=cv.getContext('2d');
 const S=document.getElementById('start'), O=document.getElementById('over');
 const go=document.getElementById('go'), retry=document.getElementById('retry');
@@ -112,12 +109,12 @@ addEventListener('resize',fit,{passive:true}); fit();
 function load(src){return new Promise(r=>{const i=new Image(); i.crossOrigin='anonymous';
   i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });}
 const A={bg:null,fg:null,oppIdle:null,oppSw:null,oppFo:null};
-let netMask=null; // ← 穴だけ白で塗るマスク
+let netMask=null; // ★ネット穴だけ白塗りするマスク
 
 Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)])
   .then(([a,b,c,d,e])=>{A.bg=a;A.fg=b;A.oppIdle=c;A.oppSw=d;A.oppFo=e; if(b) buildNetMask();});
 
-/* ===== ネット“穴”のピクセルだけ白で塗るマスクを作る ===== */
+/* ===== ネット“穴”だけ白で事前塗り（半透明も含める） ===== */
 function buildNetMask(){
   const iw=A.fg.width, ih=A.fg.height;
   const rx=Math.floor(NET_RECT_NORM.x*iw),
@@ -130,13 +127,13 @@ function buildNetMask(){
   const src=sctx.getImageData(rx,ry,rw,rh).data;
 
   const mC=document.createElement('canvas'); mC.width=iw; mC.height=ih;
-  const mctx=mC.getContext('2d'); const out=mctx.createImageData(rw,rh); const odata=out.data;
+  const mctx=mC.getContext('2d'); const out=mctx.createImageData(rw,rh); const o=out.data;
 
-  // 透明(α<32)なピクセルだけ白で塗る
+  const THRESH=250; // ← しきい値を高くして半透明も白で埋める
   for(let i=0;i<rw*rh;i++){
     const a=src[i*4+3];
-    if(a<32){ odata[i*4+0]=255; odata[i*4+1]=255; odata[i*4+2]=255; odata[i*4+3]=255; }
-    else    { odata[i*4+3]=0; }
+    if(a<THRESH){ o[i*4+0]=255; o[i*4+1]=255; o[i*4+2]=255; o[i*4+3]=255; } // 白・不透明
+    else        { o[i*4+3]=0; } // そのまま
   }
   mctx.putImageData(out,rx,ry);
   netMask=mC;
@@ -266,7 +263,7 @@ function loop(){
   // 相手
   drawOpponent(now);
 
-  // ネットの穴“だけ”白で埋め → 前景
+  // ネット穴を白で埋めるマスク → 前景PNG
   drawForegroundWithOccluder();
 
   // 進行・ボール
@@ -301,7 +298,7 @@ function drawForegroundWithOccluder(){
   const fw=A.fg.width*s, fh=A.fg.height*s;
   const fx=Math.round((W-fw)/2), fy=Math.round(H-fh+FG_Y_OFFSET*s);
 
-  // 穴だけ白：マスクを前景と同じスケールで貼る（にじみ防止でスムージングOFF）
+  // ★穴だけ白：スムージングOFFで貼る
   if(netMask){
     const keep=g.imageSmoothingEnabled; g.imageSmoothingEnabled=false;
     g.drawImage(netMask, fx, fy, fw, fh);
