@@ -1,24 +1,10 @@
 <!doctype html>
-<html lang="ja">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>PingTap — Retro Rally</title>
 
-<!-- ★ セキュリティ: 必要ドメインだけ許可（Google Fonts / Firebase / 自サイト） -->
-<meta http-equiv="Content-Security-Policy"
-      content="
-default-src 'self';
-script-src 'self' https://www.gstatic.com https://www.googleapis.com 'unsafe-inline';
-connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseappcheck.googleapis.com;
-img-src 'self' data:;
-style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-font-src 'self' https://fonts.gstatic.com;
-frame-ancestors 'none';
-base-uri 'self';
-upgrade-insecure-requests">
-
-<!-- PWA（任意・後で sw.js/manifest を置けばOK） -->
-<link rel="manifest" href="manifest.webmanifest">
+<!-- ✅ PWA: manifest + theme-color -->
+<link rel="manifest" href="/pingtap-pages/manifest.webmanifest">
 <meta name="theme-color" content="#091427">
 
 <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
@@ -84,6 +70,7 @@ upgrade-insecure-requests">
   .judge{position:fixed;left:0;top:0;pointer-events:none;z-index:8;
          font:700 16px "DotGothic16",system-ui;text-shadow:0 2px 0 rgba(0,0,0,.55)}
 
+  /* ---- 入力UI ---- */
   .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
   .txt{font:700 18px 'DotGothic16',system-ui;padding:10px 12px;border-radius:14px;border:0;outline:0;width:min(360px,80%);text-align:center}
   .btn.secondary{background:#b9ffa8;box-shadow:0 6px 0 #7bc674}
@@ -105,11 +92,12 @@ upgrade-insecure-requests">
   <div class="desc" id="bestInfo" style="margin-bottom:14px"></div>
   <div class="row" style="margin-bottom:10px">
     <button id="go" class="btn">スタート</button>
+    <!-- PGSボタン（TWA/WEBではNO-OP） -->
     <button id="seeRank" class="btn secondary">ランキング</button>
   </div>
 </div>
 
-<!-- 初回ニックネーム -->
+<!-- 初回ニックネーム（任意） -->
 <div class="card" id="namecard" style="display:none">
   <div class="title" style="font-size:28px">名前を決めよう</div>
   <div class="desc" style="margin-bottom:10px">PGSのランキング名はGoogleのゲーマータグ。<br>ここはゲーム内の表示用ニックネーム。</div>
@@ -127,36 +115,12 @@ upgrade-insecure-requests">
   </div>
 </div>
 
-<!-- ★ Firebase用シンプルランキング（PGSが無い場合に表示） -->
-<div class="card" id="rankcard" style="display:none">
-  <div class="title" style="font-size:28px">ランキング</div>
-  <div class="desc" style="margin:8px 0 12px">上位30件（ベストスコア）</div>
-  <div id="ranklist" style="max-height:min(55vh,420px);overflow:auto;
-       width:min(480px,90%);text-align:left;font:700 16px 'DotGothic16',system-ui"></div>
-  <div class="row" style="margin-top:12px">
-    <button id="rankClose" class="btn">とじる</button>
-  </div>
-</div>
-
 <div id="judge" class="judge" style="display:none">TAP!</div>
 
 <script>
 (()=>{
-// ======== 設定（ここだけ触ればOK） ========
-const CFG = {
-  DPR_MAX: 2,               // モバイル負荷を抑える
-  FIREBASE_ON: false,       // ← Firebaseランキングを使う時 true
-  FIREBASE: {
-    apiKey:     "",
-    authDomain: "",
-    projectId:  "",
-    appId:      ""
-  },
-  GAME_ID: "PingTap"
-};
-const LEADERBOARD_ID = "PGS_LEADERBOARD_ID_HERE"; // ← PGS使うときに差し替え
-
-// ======== PGS/広告 ブリッジ（WebではNO-OP） ========
+// ======== PGS/広告 ブリッジ（Web/TWAではNO-OP） ========
+const LEADERBOARD_ID = "PGS_LEADERBOARD_ID_HERE"; // ← PGS使う時に置換
 const Native = (() => {
   const A = (typeof window!=='undefined') ? window.AndroidBridge : null;
   return {
@@ -180,113 +144,17 @@ const Native = (() => {
   };
 })();
 
-// ======== Firebase フォールバック（匿名認証+Firestore+AppCheck） ========
-let FB = { active:false, submit:async()=>{}, top:async()=>[] };
-
-async function loadFirebaseSDKs(){
-  const urls = [
-    "https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js",
-    "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js",
-    "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js",
-    "https://www.gstatic.com/firebasejs/10.14.1/firebase-app-check-compat.js"
-  ];
-  for(const u of urls){
-    await new Promise((res,rej)=>{
-      const s=document.createElement('script');
-      s.src=u; s.onload=res; s.onerror=()=>rej(new Error("load failed: "+u));
-      document.head.appendChild(s);
-    });
-  }
-}
-
-(async function setupFirebaseFallback(){
-  if(!CFG.FIREBASE_ON) { updateRankButtons(); return; }
-  if(!CFG.FIREBASE.apiKey){ console.warn("Firebase config 未設定"); updateRankButtons(); return; }
-  try{
-    await loadFirebaseSDKs();
-    firebase.initializeApp(CFG.FIREBASE);
-
-    // App Check（reCAPTCHA v3）。サイトキーある時だけ有効化。
-    try{
-      const siteKey = ""; // ← 任意。使う時はサイトキーを設定
-      if(siteKey){ firebase.appCheck().activate(siteKey, true); }
-    }catch(_){}
-
-    await firebase.auth().signInAnonymously();
-    const db = firebase.firestore();
-
-    FB.active = true;
-    FB.submit = async (score)=>{
-      const uid = firebase.auth().currentUser?.uid; if(!uid) return;
-      const ref = db.collection('leaderboards').doc(CFG.GAME_ID).collection('scores').doc(uid);
-      await db.runTransaction(async tx=>{
-        const snap = await tx.get(ref);
-        const curr = snap.exists ? (snap.data().best||0) : 0;
-        const best = Math.max(curr, score|0);
-        const name = (localStorage.getItem('PT_name')||'Guest').toString().slice(0,20);
-        tx.set(ref, { name, best, updatedAt: Date.now() }, { merge:true });
-      });
-    };
-    FB.top = async (gameId, limit=30)=>{
-      const q = await db.collection('leaderboards').doc(gameId)
-        .collection('scores').orderBy('best','desc').limit(limit).get();
-      return q.docs.map(d=>d.data());
-    };
-  }catch(e){
-    console.warn("Firebase 初期化失敗:", e);
-  }finally{
-    updateRankButtons();
-  }
-})();
-
-// ======== ランキング共通I/F ========
-async function submitScoreAll(score){
-  Native.submitScore(score|0);
-  if(FB.active){ try{ await FB.submit(score|0); }catch(_){} }
-}
-async function openLeaderboard(){
-  if (typeof window.AndroidBridge !== 'undefined') { Native.showBoard(); return; }
-  if (FB.active) {
-    const list = await FB.top(CFG.GAME_ID, 30);
-    renderRankList(list);
-    document.getElementById('rankcard').style.display = 'flex';
-  }
-}
-function renderRankList(list){
-  const box = document.getElementById('ranklist');
-  if(!box) return;
-  if(!list || !list.length){ box.innerHTML = "<div>まだスコアがありません。</div>"; return; }
-  box.innerHTML = list.map((r,i)=> {
-    const name = (r.name||'Guest').toString().slice(0,20)
-      .replace(/[<>&'"]/g,s=>({ '<':'&lt;','>':'&gt;','&':'&amp;',"'":'&#39;','"':'&quot;' }[s]));
-    return `<div style="display:flex;gap:10px;align-items:center;line-height:1.9">
-              <div style="width:2em;text-align:right">${i+1}.</div>
-              <div style="flex:1 1 auto">${name}</div>
-              <div style="min-width:5em;text-align:right">${Math.floor(r.best)}</div>
-            </div>`;
-  }).join('');
-}
-function updateRankButtons(){
-  const hasPGS = !!(window.AndroidBridge && (AndroidBridge.showLeaderboard || AndroidBridge.showLeaderboard2));
-  const show = hasPGS || FB.active;
-  const a = document.getElementById('seeRank');
-  const b = document.getElementById('rank2');
-  if(a) a.style.display = show ? 'inline-grid' : 'none';
-  if(b) b.style.display = show ? 'inline-grid' : 'none';
-}
-
-// ======== 元ゲーム本体 ========
-
-/* 画像 */
+// ======== 画像（リポ内の実ファイル名に合わせる） ========
 const BG_URL     = './F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png';
 const FG_URL     = './IMG_4465.png';
 const OPP_IDLE   = './IMG_4414.png';
 const OPP_SWING  = './IMG_4413.png';
 const OPP_FOLLOW = './IMG_4412.png';
 
-/* パラメータ */
+/* ===== パラメータ ===== */
 const NET_Y=0.595, Y_PLAYER=0.115, Y_OPP=0.085, X_MARGIN=0.16, Y_JIT=0.018;
 
+// 難易度調整（前回パッチ）
 const START_DUR=1.00;
 const SPEEDUP_EVERY=1;
 const SPEEDUP_RATE=0.92;
@@ -305,11 +173,12 @@ const SCORE_BASE=100, MULT_GOOD=1.00, MULT_GREAT=1.30, MULT_PERF=1.60;
 const COMBO_BONUS=0.15;
 const ARC_H=0.12, CURVE_X=0.10;
 const BG_DES_W=768, BG_DES_H=1152;
+/* 台のスケール・位置（既存のまま） */
 let FG_SCALE=0.82, FG_Y_OFFSET=0;
 const OPP_BASE_SCALE=0.58*1.35, OPP_FOOT_Y=0.565;
 const BALL_FRONT=true;
 
-/* Canvas / DOM */
+/* ===== Canvas / DOM ===== */
 const cv=document.getElementById('cv'), g=cv.getContext('2d');
 const S=document.getElementById('start'), O=document.getElementById('over');
 const go=document.getElementById('go'), retry=document.getElementById('retry');
@@ -317,24 +186,22 @@ const F=document.getElementById('final'), judgeEl=document.getElementById('judge
 const sc=document.getElementById('sc'), scs=document.getElementById('scsub');
 const cm=document.getElementById('cm'), cms=document.getElementById('cmsub');
 const lvline=document.getElementById('lvline'), bestInfo=document.getElementById('bestInfo');
+// UI参照
 const btnSeeRank=document.getElementById('seeRank');
 const btnRank2=document.getElementById('rank2');
 const nameCard=document.getElementById('namecard');
 const nameInp=document.getElementById('nameinp');
 const nameSet=document.getElementById('nameset');
-const rankCard=document.getElementById('rankcard');
-const rankClose=document.getElementById('rankClose');
 
 let W=0,H=0,dpr=1;
-function fit(){
-  dpr = Math.max(1, Math.min(CFG.DPR_MAX, devicePixelRatio||1));
+function fit(){ dpr=Math.max(1,Math.min(3,devicePixelRatio||1));
   W=innerWidth; H=innerHeight;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   g.setTransform(dpr,0,0,dpr,0,0);
 }
 addEventListener('resize',fit,{passive:true}); fit();
 
-/* 画像ロード */
+/* ===== 画像ロード ===== */
 function load(src){return new Promise(r=>{const i=new Image(); i.crossOrigin='anonymous';
   i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; });}
 const A={bg:null,fg:null,oppIdle:null,oppSw:null,oppFo:null};
@@ -346,7 +213,7 @@ Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_F
     if(b) detectNetBand(b);
   });
 
-/* ネット帯の自動検出 */
+/* ===== ネット帯の自動検出（既存のまま） ===== */
 function detectNetBand(img){
   const iw=img.width, ih=img.height;
   const off=document.createElement('canvas'); off.width=iw; off.height=ih;
@@ -388,7 +255,7 @@ function detectNetBand(img){
   netBandNorm={x:rx/iw,y:ry/ih,w:rw/iw,h:rh/ih};
 }
 
-/* オーディオ */
+/* ===== オーディオ ===== */
 let AC=null, master=null, bgm={timer:null,lead:null,bass:null,lg:null,bg:null};
 function ac(){ if(!AC){ AC=new (window.AudioContext||window.webkitAudioContext)();
   master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination); }
@@ -429,12 +296,12 @@ function stopBGM(){
   ['lead','bass','lg','bg'].forEach(n=>{ if(bgm[n]){ try{bgm[n].stop()}catch{} try{bgm[n].disconnect()}catch{} bgm[n]=null; }});
 }
 
-/* 乱数・スポット */
+/* ===== 乱数・スポット ===== */
 const R=Math.random, rnd=(a,b)=>a+R()*(b-a), sec=()=>performance.now()/1000;
 const oppSpot=()=>({x:rnd(W*X_MARGIN,W*(1-X_MARGIN)), y:H*NET_Y-H*Y_OPP+rnd(-H*Y_JIT,H*Y_JIT)});
 const plySpot=()=>({x:rnd(W*X_MARGIN,W*(1-X_MARGIN)), y:H*NET_Y+H*Y_PLAYER+rnd(-H*Y_JIT,H*Y_JIT)});
 
-/* 状態 */
+/* ===== 状態 ===== */
 let playing=false, t0=0, dur=START_DUR, phase='toPlayer';
 let from={x:0,y:0}, to={x:0,y:0}, ctrl={x:0,y:0};
 let playerAim={x:0,y:0}, oppAim={x:0,y:0};
@@ -442,6 +309,7 @@ let score=0, combo=0, best=Number(localStorage.getItem('PT_best')||0), level=1, 
 let judgeText='', judgeUntil=0, judgeColor='#ffe38a';
 bestInfo.textContent='Best '+best.toFixed(0);
 let _playCount=0;
+// ゲーム内ニックネーム
 const Name = { get:()=>localStorage.getItem('PT_name')||'', set:n=>localStorage.setItem('PT_name',(n||'Guest').trim().slice(0,16)) };
 
 const bez=(p,a,c,b)=>{const u=1-p; return u*u*a+2*u*p*c+p*p*b;}
@@ -457,7 +325,7 @@ function showJudge(text,color,x,y){
   judgeEl.style.left = (x-9999)+'px';
 }
 
-/* 下限を時間で下げる関数 */
+/* ===== 下限を時間で下げる（前回パッチ） ===== */
 function currentMinDur(){
   const t = sec() - startedAt;
   if (t <= FLOOR_RAMP_START) return MIN_DUR;
@@ -476,32 +344,26 @@ function resetState(){
   updateLvTime();
   setLeg(oppAim,playerAim); judgeUntil=0; judgeEl.style.display='none';
 }
-function startGame(){ ac(); startBGM(); resetState(); S.style.display='none'; O.style.display='none'; rankCard.style.display='none'; playing=true; }
-function pauseGame(){ if(playing) playing=false; stopBGM(); }
-function resumeGame(){
-  if(!playing && S.style.display==='none' && O.style.display==='none' && rankCard.style.display==='none'){
-    startBGM(); playing=true;
-  }
-}
+function startGame(){ ac(); startBGM(); resetState(); S.style.display='none'; O.style.display='none'; playing=true; }
 function gameOver(){
   playing=false; stopBGM();
   if(score>best){best=score;localStorage.setItem('PT_best',best); bestInfo.textContent='Best '+best.toFixed(0); }
   F.innerHTML='Score '+score.toFixed(0)+'<br>Lv.'+level;
 
-  // ランキング送信（PGS優先→Firebaseへも送信）
-  submitScoreAll(Math.floor(score));
+  // ランキング送信（Web/TWAではNO-OP）
+  Native.submitScore(Math.floor(score));
 
-  // 短広告のフック（アプリのみ）
+  // 2回に1回だけ広告（アプリ側のみ有効）
   _playCount++;
   if((_playCount % 2) === 0){
     pauseGame();
-    Native.showAd('post_game'); // Android側で閉じたら __pingtap.resume() を呼ぶ
+    Native.showAd('post_game'); // 閉じ時にAndroid側から __pingtap.resume() を呼ぶ想定
   }
 
   O.style.display='flex';
 }
 
-/* 入力 */
+/* ===== 入力 ===== */
 addEventListener('pointerdown', e=>{
   ac();
   if(!playing||phase!=='toPlayer') return;
@@ -532,7 +394,7 @@ addEventListener('pointerdown', e=>{
 function ringRadiusNow(){ const p=Math.min(1,Math.max(0,(sec()-t0)/dur));
   return RING_BASE+RING_SHRINK*((phase==='toPlayer')?(1-p):1); }
 
-/* ループ */
+/* ===== ループ ===== */
 function loop(){
   const now=sec();
 
@@ -573,7 +435,7 @@ function loop(){
 }
 requestAnimationFrame(loop);
 
-/* 前景：ネット帯白塗り → 前景PNG */
+/* ===== 前景：ネット帯白塗り → 前景PNG ===== */
 function drawForegroundWithBand(){
   if(!A.fg) return;
   const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), s=sBase*FG_SCALE;
@@ -591,7 +453,7 @@ function drawForegroundWithBand(){
   g.imageSmoothingEnabled=keep;
 }
 
-/* 相手（スタート時は中央固定） */
+/* ===== 相手（スタート時は中央固定） ===== */
 function drawOpponent(now){
   if(!A.oppIdle) return;
   const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), scale=sBase*OPP_BASE_SCALE;
@@ -611,7 +473,7 @@ function drawOpponent(now){
   g.imageSmoothingEnabled=keep; g.restore();
 }
 
-/* ガイド */
+/* ===== ガイド ===== */
 function drawGuide(x,y,rr,isPlayer,label,labelColor='#ffe38a'){
   g.beginPath(); g.lineWidth=3; g.setLineDash([]);
   g.strokeStyle=isPlayer?'var(--ringP)':'var(--ringO)'; g.arc(x,y,RING_BASE,0,Math.PI*2); g.stroke();
@@ -622,14 +484,13 @@ function drawGuide(x,y,rr,isPlayer,label,labelColor='#ffe38a'){
   judgeEl.style.transform=`translate(${lx-18}px, ${ly-18}px)`;
 }
 
-/* UI */
+/* ===== UI ===== */
 go.onclick=()=>{ startGame(); };
-retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; rankCard.style.display='none'; };
-btnSeeRank.onclick=()=>{ openLeaderboard(); };
-btnRank2.onclick=()=>{ openLeaderboard(); };
-rankClose.onclick=()=>{ rankCard.style.display='none'; };
+retry.onclick=()=>{ S.style.display='flex'; O.style.display='none'; };
+btnSeeRank.onclick=()=>{ Native.showBoard(); };
+btnRank2.onclick=()=>{ Native.showBoard(); };
 
-// 初回ニックネーム
+// ======== ニックネーム ========
 function ensureName(){
   const has = !!Name.get();
   nameCard.style.display = has ? 'none' : 'flex';
@@ -643,19 +504,23 @@ nameSet.onclick=()=>{
 };
 document.addEventListener('DOMContentLoaded', ()=>{ ensureName(); });
 
-// バックグラウンド/広告用 ポーズ&レジューム
+// ======== バックグラウンド/広告用 ポーズ&レジューム ========
+function pauseGame(){ if(playing) playing=false; stopBGM(); }
+function resumeGame(){
+  if(!playing && S.style.display==='none' && O.style.display==='none'){
+    startBGM(); playing=true;
+  }
+}
 document.addEventListener('visibilitychange', ()=>{ document.hidden ? pauseGame() : resumeGame(); });
 window.__pingtap = Object.assign(window.__pingtap||{}, { pause:pauseGame, resume:resumeGame });
+
 window.addEventListener('pointerdown', ()=>ac(), {once:true, passive:true});
-
-// PWA（任意）：sw.js があれば登録
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('./sw.js').catch(()=>{});
-}
-
-// 初期ボタン可視状態（Firebaseセットアップ前でも一度反映）
-updateRankButtons();
-
 })();
 </script>
-</html>
+
+<!-- ✅ PWA: Service Worker を最後に登録 -->
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/pingtap-pages/sw.js').catch(()=>{});
+}
+</script>
