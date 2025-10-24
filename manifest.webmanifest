@@ -1,14 +1,14 @@
-
 {
   "name": "PingTap — Retro Rally",
   "short_name": "PingTap",
-  "start_url": "/pingtap-pages/",
+  "start_url": "/pingtap-pages/?utm_source=a2hs",
   "scope": "/pingtap-pages/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#091427",
   "theme_color": "#091427",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/pingtap-pages/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/pingtap-pages/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }
