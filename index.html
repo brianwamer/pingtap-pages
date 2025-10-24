@@ -4,7 +4,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
 <title>PingTap — Retro Rally</title>
 
-<!-- PWA（GitHub Pagesの公開パスに合わせて絶対パス） -->
+<!-- PWA（GitHub Pages のルートに合わせて絶対パス） -->
 <link rel="manifest" href="/pingtap-pages/manifest.webmanifest" />
 <meta name="theme-color" content="#091427" />
 
@@ -12,11 +12,8 @@
 <style>
   :root{
     --hud-bg: rgba(20,20,30,.55);
-    --ringP: rgba(255,235,150,.95);
-    --ringO: rgba(170,220,255,.92);
     --accent:#ffd34d;
-    --c-score:#FFE36E; --c-combo:#A8D6FF;
-    --c-level:#FFFFFF;
+    --c-score:#FFE36E; --c-combo:#A8D6FF; --c-level:#FFFFFF;
   }
   html,body{margin:0;height:100%;background:#091427;color:#fff}
   body{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
@@ -51,29 +48,22 @@
       radial-gradient(130% 80% at 110% -10%, rgba(150,210,255,.10), transparent 35%)}
   @keyframes flicker{0%,100%{opacity:.35}45%{opacity:.28}52%{opacity:.38}70%{opacity:.30}}
 
-  .title{
-    font:700 clamp(28px,5.6vw,44px) "DotGothic16",system-ui;
-    color:#ffe8a8; letter-spacing:.6px;
-    text-shadow:
-      0  1px 0 #000, 0 -1px 0 #000,  1px 0 0 #000, -1px 0 0 #000,
-      1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000,
-      0 3px 0 #8c5b00, 0 8px 18px rgba(255,210,120,.35);
-  }
+  .title{font:700 clamp(28px,5.6vw,44px) "DotGothic16",system-ui;color:#ffe8a8;letter-spacing:.6px;
+         text-shadow:0 1px 0 #000,0 -1px 0 #000,1px 0 0 #000,-1px 0 0 #000,0 3px 0 #8c5b00,0 8px 18px rgba(255,210,120,.35)}
   .lead{color:#ffe6bf;text-shadow:0 2px 0 rgba(0,0,0,.55),0 0 10px rgba(255,220,140,.25)}
   .desc{color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.6),0 0 8px rgba(0,0,0,.35)}
-  #bestInfo{color:#ffd34d;font-weight:900;letter-spacing:.4px;
-            text-shadow:0 1px 0 #5a3a00,0 0 10px rgba(255,211,77,.45)}
+  #bestInfo{color:#ffd34d;font-weight:900;letter-spacing:.4px;text-shadow:0 1px 0 #5a3a00,0 0 10px rgba(255,211,77,.45)}
   .btn{background:#ffd34d;box-shadow:0 6px 0 #caa132,0 14px 24px rgba(255,200,80,.28);
        display:inline-grid;place-items:center;min-width:46px;height:46px;border-radius:18px;
        padding:0 18px;color:#222;font-weight:900;font-size:18px;border:0;animation:pulse 1.6s ease-in-out infinite}
   @keyframes pulse{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-1px) scale(1.02)}}
+  .btn.secondary{background:#b9ffa8;box-shadow:0 6px 0 #7bc674}
 
   .judge{position:fixed;left:0;top:0;pointer-events:none;z-index:8;
          font:700 16px "DotGothic16",system-ui;text-shadow:0 2px 0 rgba(0,0,0,.55)}
 
   .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
   .txt{font:700 18px 'DotGothic16',system-ui;padding:10px 12px;border-radius:14px;border:0;outline:0;width:min(360px,80%);text-align:center}
-  .btn.secondary{background:#b9ffa8;box-shadow:0 6px 0 #7bc674}
 </style>
 
 <canvas id="cv"></canvas>
@@ -91,7 +81,7 @@
   <div class="desc" style="margin-bottom:12px">Perfect / Great / Good で加点＆コンボ。<br>90秒で<strong>激ムズ</strong>モード。</div>
   <div class="desc" id="bestInfo" style="margin-bottom:14px"></div>
   <div class="row" style="margin-bottom:10px">
-    <!-- 通常はJSのイベント配線。念のため inline 保険も併用 -->
+    <!-- JS配線＋保険のinline -->
     <button id="go" class="btn" onclick="window.__pingtap_go && window.__pingtap_go()">スタート</button>
     <button id="seeRank" class="btn secondary" onclick="window.__pingtap_rank && window.__pingtap_rank()">ランキング</button>
   </div>
@@ -117,45 +107,38 @@
 
 <div id="judge" class="judge" style="display:none">TAP!</div>
 
-<!-- ==== クリックが死んだときの最小限の保険 ==== -->
+<!-- 保険（inline handler用） -->
 <script>
-window.__pingtap_go = () => {
-  if (!localStorage.getItem('PT_name')) {
-    const c=document.getElementById('namecard'), i=document.getElementById('nameinp');
-    if(c) c.style.display='flex'; if(i){ i.value=''; i.focus(); }
-    return;
-  }
-  if (window.startGame) window.startGame();
-};
+window.__pingtap_go = () => { if (!localStorage.getItem('PT_name')) {
+  const c=document.getElementById('namecard'), i=document.getElementById('nameinp');
+  if(c) c.style.display='flex'; if(i){ i.value=''; i.focus(); } return;
+} window.startGame && window.startGame(); };
 window.__pingtap_rank = () => {
-  try{
-    if (window.AndroidBridge?.showLeaderboard2) {
-      window.AndroidBridge.showLeaderboard2('PGS_LEADERBOARD_ID_HERE');
-    } else if (window.AndroidBridge?.showLeaderboard) {
-      window.AndroidBridge.showLeaderboard();
-    }
+  try{ const A=window.AndroidBridge;
+    if(A?.showLeaderboard2) A.showLeaderboard2('PGS_LEADERBOARD_ID_HERE');
+    else if(A?.showLeaderboard) A.showLeaderboard();
   }catch(_){}
 };
 </script>
 
 <script>
 (()=>{
-// ===== ブリッジ（WebではNO-OP） =====
+// ====== ブリッジ ======
 const LEADERBOARD_ID="PGS_LEADERBOARD_ID_HERE";
 const Native=(()=>{const A=window.AndroidBridge||null;return{
-  submitScore(s){try{if(!A)return;if(typeof A.submitScore2==='function')A.submitScore2(s|0,LEADERBOARD_ID);else if(typeof A.submitScore==='function')A.submitScore(s|0);}catch(_){}},
-  showBoard(){try{if(!A)return;if(typeof A.showLeaderboard2==='function')A.showLeaderboard2(LEADERBOARD_ID);else if(typeof A.showLeaderboard==='function')A.showLeaderboard();}catch(_){}},
+  submitScore(s){try{if(!A)return;if(A.submitScore2)A.submitScore2(s|0,LEADERBOARD_ID);else if(A.submitScore)A.submitScore(s|0);}catch(_){}},
+  showBoard(){try{if(!A)return;if(A.showLeaderboard2)A.showLeaderboard2(LEADERBOARD_ID);else if(A.showLeaderboard)A.showLeaderboard();}catch(_){}},
   showAd(r){try{A?.showAd?.(String(r||''));}catch(_){}}
 }})();
 
-// ===== 画像（リポの実ファイル名） =====
+// ====== 画像（リポの実ファイル名） ======
 const BG_URL='./F0BDAD6E-3A4B-49E8-86BF-73CE3EAA6C58.png';
 const FG_URL='./IMG_4465.png';
 const OPP_IDLE='./IMG_4414.png';
 const OPP_SWING='./IMG_4413.png';
 const OPP_FOLLOW='./IMG_4412.png';
 
-// ===== パラメータ（台の見え方は据え置き） =====
+// ====== パラメータ ======
 const NET_Y=0.595, Y_PLAYER=0.115, Y_OPP=0.085, X_MARGIN=0.16, Y_JIT=0.018;
 const START_DUR=1.00, SPEEDUP_EVERY=1, SPEEDUP_RATE=0.92, MIN_DUR=0.52, DEMON_AT=90;
 const FLOOR_RAMP_START=5, FLOOR_RAMP_END=90, PRE_DEMON_FLOOR=0.24, DEMON_FLOOR=0.18;
@@ -166,12 +149,13 @@ const SCORE_BASE=100, MULT_GOOD=1.00, MULT_GREAT=1.30, MULT_PERF=1.60;
 const COMBO_BONUS=0.15;
 const ARC_H=0.12, CURVE_X=0.10;
 const BG_DES_W=768, BG_DES_H=1152;
-/* 台 */
-let FG_SCALE=0.82, FG_Y_OFFSET=0;
+/* 台（据え置き） */ let FG_SCALE=0.82, FG_Y_OFFSET=0;
 const OPP_BASE_SCALE=0.58*1.35, OPP_FOOT_Y=0.565;
 const BALL_FRONT=true;
+/* Canvas色（CSS変数はCanvasに効かないので実色に） */
+const RINGP='rgba(255,235,150,.95)', RINGO='rgba(170,220,255,.92)';
 
-// ===== DOM / 状態 =====
+// ====== DOM/状態 ======
 const cv=document.getElementById('cv'), g=cv.getContext('2d');
 const S=document.getElementById('start'), O=document.getElementById('over');
 const go=document.getElementById('go'), retry=document.getElementById('retry');
@@ -198,7 +182,7 @@ let netBandNorm=null;
 Promise.all([load(BG_URL),load(FG_URL),load(OPP_IDLE),load(OPP_SWING),load(OPP_FOLLOW)])
   .then(([a,b,c,d,e])=>{A.bg=a;A.fg=b;A.oppIdle=c;A.oppSw=d;A.oppFo=e;if(b)detectNetBand(b);});
 
-// ===== ネット帯検出 =====
+// ====== ネット帯検出 ======
 function detectNetBand(img){
   const iw=img.width, ih=img.height;
   const off=document.createElement('canvas'); off.width=iw; off.height=ih;
@@ -208,9 +192,7 @@ function detectNetBand(img){
   let yTopObj=ih, yBotObj=0;
   for(let y=0;y<ih;y++){
     let has=false;
-    for(let x=xL;x<=xR;x+=2){
-      if(data[(y*iw+x)*4+3]>16){ has=true; break; }
-    }
+    for(let x=xL;x<=xR;x+=2){ if(data[(y*iw+x)*4+3]>16){ has=true; break; } }
     if(has){ yTopObj=Math.min(yTopObj,y); yBotObj=Math.max(yBotObj,y); }
   }
   if(yTopObj>=yBotObj){ netBandNorm={x:0.045,y:0.472,w:0.91,h:0.115}; return; }
@@ -226,18 +208,15 @@ function detectNetBand(img){
       transRatio[y]=hole/Math.max(1,tot);
     }
   }
-  let yPeak=yA,vPeak=0;
-  for(let y=yA;y<=yB;y++) if(transRatio[y]>vPeak){vPeak=transRatio[y]; yPeak=y;}
+  let yPeak=yA,vPeak=0; for(let y=yA;y<=yB;y++) if(transRatio[y]>vPeak){vPeak=transRatio[y]; yPeak=y;}
   if(vPeak<0.1){ netBandNorm={x:0.045,y:0.472,w:0.91,h:0.115}; return; }
-  const thr=vPeak*0.45; let y1=yPeak,y2=yPeak;
-  while(y1>yA&&transRatio[y1-1]>thr)y1--;
-  while(y2<yB&&transRatio[y2+1]>thr)y2++;
+  const thr=vPeak*0.45; let y1=yPeak,y2=yPeak; while(y1>yA&&transRatio[y1-1]>thr)y1--; while(y2<yB&&transRatio[y2+1]>thr)y2++;
   const rx=Math.floor(iw*0.05), rw=Math.floor(iw*0.90);
   const ry=Math.max(0,y1-2), rh=Math.min(ih-ry,(y2-y1)+4);
   netBandNorm={x:rx/iw,y:ry/ih,w:rw/iw,h:rh/ih};
 }
 
-// ===== オーディオ =====
+// ====== オーディオ ======
 let AC=null, master=null, bgm={timer:null,lead:null,bass:null,lg:null,bg:null};
 function ac(){ if(!AC){ AC=new (window.AudioContext||window.webkitAudioContext)();
   master=AC.createGain(); master.gain.value=.9; master.connect(AC.destination); }
@@ -256,7 +235,7 @@ function sePock(){ ac();
   n.connect(g2).connect(master); n.start(); n.stop(AC.currentTime+0.07);
 }
 
-// ===== 乱数・スポット =====
+// ====== 乱数・スポット ======
 const R=Math.random, rnd=(a,b)=>a+R()*(b-a), sec=()=>performance.now()/1000;
 const oppSpot=()=>({x:rnd(W*X_MARGIN,W*(1-X_MARGIN)), y:H*NET_Y-H*Y_OPP+rnd(-H*Y_JIT,H*Y_JIT)});
 const plySpot=()=>({x:rnd(W*X_MARGIN,W*(1-X_MARGIN)), y:H*NET_Y+H*Y_PLAYER+rnd(-H*Y_JIT,H*Y_JIT)});
@@ -282,7 +261,6 @@ function showJudge(text,color,x,y){
   judgeEl.style.display='block'; judgeEl.textContent=text; judgeEl.style.color=color;
   judgeEl.style.left = (x-9999)+'px';
 }
-
 function currentMinDur(){
   const t = sec() - startedAt;
   if (t <= FLOOR_RAMP_START) return MIN_DUR;
@@ -302,7 +280,7 @@ function resetState(){
   setLeg(oppAim,playerAim); judgeUntil=0; judgeEl.style.display='none';
 }
 function startGame(){ ac(); stopBGM(); startBGM(); resetState(); S.style.display='none'; O.style.display='none'; playing=true; }
-window.startGame = startGame; // inline保険用
+window.startGame = startGame;
 
 function pauseGame(){ if(playing) playing=false; stopBGM(); }
 function resumeGame(){ if(!playing && S.style.display==='none' && O.style.display==='none'){ startBGM(); playing=true; } }
@@ -317,7 +295,19 @@ function gameOver(){
   O.style.display='flex';
 }
 
-// ===== 入力 =====
+// ====== 安全な楕円描画（Safari対策） ======
+function ellipseSafe(ctx,x,y,rx,ry,rot){
+  if (typeof ctx.ellipse === 'function'){
+    ctx.ellipse(x,y,rx,ry,rot||0,0,Math.PI*2);
+  }else{
+    ctx.save();
+    ctx.translate(x,y); if(rot) ctx.rotate(rot);
+    ctx.scale(rx,ry); ctx.arc(0,0,1,0,Math.PI*2);
+    ctx.restore();
+  }
+}
+
+// ====== 入力 ======
 addEventListener('pointerdown', e=>{
   ac();
   if(!playing||phase!=='toPlayer') return;
@@ -347,42 +337,49 @@ addEventListener('pointerdown', e=>{
 },{passive:true});
 function ringRadiusNow(){ const p=Math.min(1,Math.max(0,(sec()-t0)/dur)); return RING_BASE+RING_SHRINK*((phase==='toPlayer')?(1-p):1); }
 
-// ===== ループ =====
+// ====== ループ（例外があっても必ず回す） ======
 function loop(){
-  const now=sec();
+  try{
+    const now=sec();
 
-  if(A.bg){ const r=Math.max(W/A.bg.width,H/A.bg.height), w=A.bg.width*r, h=A.bg.height*r;
-    g.drawImage(A.bg,(W-w)/2,(H-h)/2,w,h);
-  }else{ const grad=g.createLinearGradient(0,0,0,H); grad.addColorStop(0,'#1a315d'); grad.addColorStop(1,'#0b1631'); g.fillStyle=grad; g.fillRect(0,0,W,H); }
+    // 背景
+    if(A.bg){ const r=Math.max(W/A.bg.width,H/A.bg.height), w=A.bg.width*r, h=A.bg.height*r;
+      g.drawImage(A.bg,(W-w)/2,(H-h)/2,w,h);
+    }else{ const grad=g.createLinearGradient(0,0,0,H); grad.addColorStop(0,'#1a315d'); grad.addColorStop(1,'#0b1631'); g.fillStyle=grad; g.fillRect(0,0,W,H); }
 
-  drawOpponent(now);
-  drawForegroundWithBand();
+    // 相手
+    drawOpponent(now);
 
-  if(playing){
-    const p=Math.min(1,(now-t0)/dur);
-    const bx=bez(p,from.x,ctrl.x,to.x), by=bez(p,from.y,ctrl.y,to.y);
-    if(phase==='toOpponent' && p>0.64 && p<0.66){ sePock(); }
-    if(p>=1){ if(phase==='toPlayer'){ gameOver(); } else { phase='toPlayer'; playerAim=plySpot(); setLeg(oppAim,playerAim); } }
+    // 台（ネット帯を白で埋め → PNG）
+    drawForegroundWithBand();
 
-    const rr=ringRadiusNow();
-    drawGuide(playerAim.x,playerAim.y,rr,true,(judgeUntil>now)?judgeText:'TAP!', judgeColor);
+    // 進行・ボール
+    if(playing){
+      const p=Math.min(1,(now-t0)/dur);
+      const bx=bez(p,from.x,ctrl.x,to.x), by=bez(p,from.y,ctrl.y,to.y);
+      if(phase==='toOpponent' && p>0.64 && p<0.66){ sePock(); }
+      if(p>=1){ if(phase==='toPlayer'){ gameOver(); } else { phase='toPlayer'; playerAim=plySpot(); setLeg(oppAim,playerAim); } }
 
-    if(BALL_FRONT){
-      const hNorm=1-4*(p-0.5)*(p-0.5), rad=8*(1+0.08*hNorm);
-      g.globalAlpha=0.25*(1-hNorm); g.fillStyle='#000';
-      g.beginPath(); g.ellipse(bx+2,by+6,rad*0.9,rad*0.55,0,0,Math.PI*2); g.fill();
-      g.globalAlpha=1; g.fillStyle='#fff'; g.beginPath(); g.arc(bx,by,rad,0,Math.PI*2); g.fill();
+      const rr=ringRadiusNow();
+      drawGuide(playerAim.x,playerAim.y,rr,true,(judgeUntil>now)?judgeText:'TAP!', judgeColor);
+
+      if(BALL_FRONT){
+        const hNorm=1-4*(p-0.5)*(p-0.5), rad=8*(1+0.08*hNorm);
+        g.globalAlpha=0.25*(1-hNorm); g.fillStyle='#000';
+        g.beginPath(); ellipseSafe(g,bx+2,by+6,rad*0.9,rad*0.55,0); g.fill();
+        g.globalAlpha=1; g.fillStyle='#fff'; g.beginPath(); g.arc(bx,by,rad,0,Math.PI*2); g.fill();
+      }
+      updateLvTime();
     }
-    updateLvTime();
+
+    if(playing && (now-startedAt)>=DEMON_AT){ g.fillStyle='rgba(255,80,80,.18)'; g.fillRect(0,0,W,6); }
+  }finally{
+    requestAnimationFrame(loop);
   }
-
-  if(playing && (now-startedAt)>=DEMON_AT){ g.fillStyle='rgba(255,80,80,.18)'; g.fillRect(0,0,W,6); }
-
-  requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-// ===== 前景（ネット帯白塗り→PNG） =====
+// ====== 前景 ======
 function drawForegroundWithBand(){
   if(!A.fg) return;
   const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), s=sBase*FG_SCALE;
@@ -397,7 +394,7 @@ function drawForegroundWithBand(){
   g.drawImage(A.fg,fx,fy,fw,fh); g.imageSmoothingEnabled=keep;
 }
 
-// ===== 相手 =====
+// ====== 相手 ======
 function drawOpponent(now){
   if(!A.oppIdle) return;
   const sBase=Math.min(W/BG_DES_W,H/BG_DES_H), scale=sBase*OPP_BASE_SCALE;
@@ -411,7 +408,18 @@ function drawOpponent(now){
   g.imageSmoothingEnabled=keep; g.restore();
 }
 
-// ===== UI配線 =====
+// ====== ガイド ======
+function drawGuide(x,y,rr,isPlayer,label,labelColor='#ffe38a'){
+  g.beginPath(); g.lineWidth=3; g.setLineDash([]);
+  g.strokeStyle=isPlayer?RINGP:RINGO; g.arc(x,y,RING_BASE,0,Math.PI*2); g.stroke();
+  g.beginPath(); g.lineWidth=3; g.setLineDash(isPlayer?[6,6]:[]);
+  g.strokeStyle=isPlayer?RINGP:RINGO; g.arc(x,y,rr,0,Math.PI*2); g.stroke(); g.setLineDash([]);
+  const lx=x, ly=y-RING_BASE-12;
+  g.fillStyle=labelColor; g.font='700 16px DotGothic16, system-ui'; g.textAlign='center'; g.fillText(label, lx, ly);
+  judgeEl.style.transform=`translate(${lx-18}px, ${ly-18}px)`;
+}
+
+// ====== UI配線 ======
 const NameAPI={ get:()=>localStorage.getItem('PT_name')||'', set:v=>localStorage.setItem('PT_name',(v||'Guest').trim().slice(0,16)) };
 function ensureName(){ const has=!!NameAPI.get(); nameCard.style.display=has?'none':'flex'; if(!has){ nameInp.value=''; nameInp.focus(); } return has; }
 go.addEventListener('click', ()=>{ ensureName()?startGame():null; });
@@ -421,10 +429,7 @@ btnRank2.addEventListener('click', ()=>{ Native.showBoard(); });
 nameSet.addEventListener('click', ()=>{ const v=(nameInp.value||'').trim(); if(!v){ alert('名前を入力してね'); return; } NameAPI.set(v); nameCard.style.display='none'; });
 document.addEventListener('DOMContentLoaded', ()=>{ ensureName(); });
 
-// バックグラウンドでのポーズ/レジューム
-document.addEventListener('visibilitychange', ()=>{ document.hidden ? pauseGame() : resumeGame(); });
-
-// ==== BGM（最後に定義） ====
+// ====== BGM ======
 function startBGM(){ ac(); stopBGM();
   const leadSeq=[0,2,4,5,7,5,4,2]; const baseA=440, bassDiv=4, tempo=124, stepMs=60000/tempo/2;
   bgm.lead=AC.createOscillator(); bgm.lg=AC.createGain();
@@ -445,7 +450,7 @@ function stopBGM(){ if(bgm.timer){ clearInterval(bgm.timer); bgm.timer=null; }
 }
 })();</script>
 
-<!-- PWA: Service Worker（絶対パス/即時更新） -->
+<!-- PWA: Service Worker（絶対パス） -->
 <script>
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('/pingtap-pages/sw.js')
